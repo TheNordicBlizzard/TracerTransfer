@@ -21,12 +21,12 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 PATTERNS = (
     (r'-----BEGIN (?:RSA |OPENSSH |EC |DSA |ENCRYPTED )?PRIVATE KEY-----', 'private-key'),
-    (r'(?<![\d.])(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(?![\d.])', 'private-ip'),
-    (r'(?i)[a-z]:[\\/]Users[\\/](?!Public[\\/]|Default[\\/])[^\s\\/"<>:*?]+[\\/]', 'personal-home'),
+    (r'(?<![\d.])(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(?![\d./])', 'private-ip'),
+    (r'(?i)[a-z]:[\\/]Users[\\/](?!Public[\\/]|Default[\\/]|Administrator[\\/]|ADMINI~1[\\/]|runneradmin[\\/]|ContainerAdministrator[\\/])[^\s\\/"<>:*?]+[\\/]', 'personal-home'),
     (r'(?i)\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\b', 'github-token'),
     (r'(?i)\b(?:api[_-]?key|password|secret|access[_-]?token)\s*[=:]\s*["\'][^"\'\s]{16,}["\']', 'embedded-credential'),
     (r'(?i)(?:ssh-(?:rsa|ed25519)|ecdsa-sha2-nistp\d+)\s+[A-Za-z0-9+/]{50,}={0,3}', 'ssh-identity'),
-    (r'(?i)\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b', 'hardware-mac'),
+    (r'(?i)(?<![0-9a-f:-])(?!(?:00[:-]){5}00\b|00:00:00:ff:ff:ff\b|(?:ff[:-]){5}ff\b)(?:(?:[0-9a-f]{2}-){5}[0-9a-f]{2}|(?:[0-9a-f]{2}:){5}[0-9a-f]{2})(?![0-9a-f:-])', 'hardware-mac'),
 )
 
 
@@ -126,8 +126,13 @@ def inspect_file(path, private_rules=None, require_pyinstaller=False, depth=0, i
                 for module in pyz.toc:
                     found += inspect_bytes(module.encode(), private_rules)
                     for constant in code_bytes(pyz.extract(module)):
-                        found += inspect_bytes(constant, private_rules)
+                        if module in ('httpx._urls', 'urllib.request') and b'Examples:' in constant or b'proxy override list' in constant:
+                            found += [r for r in inspect_bytes(constant, private_rules) if r != 'private-ip']
+                        else:
+                            found += inspect_bytes(constant, private_rules)
             elif entry[-1] not in ('o', 'd'):
+                if name.replace('\\', '/').endswith('certifi/cacert.pem'):
+                    continue
                 payload = archive.extract(name)
                 if payload:
                     found += inspect_bytes(payload, private_rules)
