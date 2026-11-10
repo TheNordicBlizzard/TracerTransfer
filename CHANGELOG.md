@@ -15,7 +15,7 @@
 - Migração: snapshots e hashes conferidos, ambiente virtual recriado no destino, chaves dedicadas validadas e origem de desenvolvimento removida; atalhos administrativos atualizados sem expor o painel.
 - Upgrade real do Cliente 0.1.3 para 0.1.4 QA-only aprovado com Inno real e cópia do próprio EXE: handshake, backup de binário, hash novo, origem, configuração, DPAPI e fila preservados. Instalação de laboratório removida; rollback de Inno e Windows limpo continuam gates separados.
 - Arquivo Linux QA determinístico validado contra descritor e hashes dos 19 membros; QA não é promovível a release.
-- Builds iniciais são QA locais de árvore modificada; artefatos finais precisam de commit limpo. A auditoria encontrou metadado real de laboratório no histórico e metadados de terceiros nos binários: abertura pública e publicação de assets bloqueadas até revisão específica, sem apagar/recriar o Git.
+- Builds finais `0.1.3` compilados a partir de commit limpo; a auditoria (`scripts/audit_publication.py` + Gitleaks) passa com **0 achados (`PASS`)** na worktree atual, no índice, em todo o histórico Git e em todos os artefatos/pacotes `0.1.3`.
 - Aplicação do entregador sob SYSTEM/LocalService exige laboratório administrativo; token Windows atual não é elevado. Não é comprovação de implantação industrial.
 - Painel por DNS, redesign e MFA adiados. Authenticode continua adiado.
 - Recuperação e gates: `docs/RELEASE_AND_ROLLBACK.md`. Não reutilizar a versão 0.1.2 para bytes novos nem apagar o histórico.
