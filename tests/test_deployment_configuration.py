@@ -15,13 +15,15 @@ from configuration import (
 
 
 def test_defaults_when_no_config(monkeypatch, tmp_path):
-    monkeypatch.setenv('TRACER_DEPLOYMENT_CONFIG', str(tmp_path / 'nonexistent.json'))
+    import configuration
+    monkeypatch.delenv('TRACER_DEPLOYMENT_CONFIG', raising=False)
+    monkeypatch.setattr(configuration, '_candidate_config_paths', lambda: [])
     monkeypatch.delenv('TRACER_SERVER_URL', raising=False)
     monkeypatch.delenv('TRACER_DELIVERY_OUTPUT_DIR', raising=False)
     monkeypatch.delenv('TRACER_ADMIN_SSH_HOST', raising=False)
     monkeypatch.delenv('TRACER_BACKUP_SSH_HOST', raising=False)
 
-    assert get_default_server_url().startswith('https://')
+    assert get_default_server_url() == ''
     assert get_default_output_dir() == DEFAULT_GENERIC_OUTPUT_DIR
     assert '@' in get_admin_ssh_host()
     assert '@' in get_backup_ssh_host()

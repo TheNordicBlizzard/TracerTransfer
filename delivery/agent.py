@@ -25,7 +25,7 @@ import httpx
 from delivery.state import State, atomic_json, protect_token, unprotect_token
 from configuration import get_default_server_url
 
-DEFAULT_SERVER = get_default_server_url('https://tracer.example.com')
+DEFAULT_SERVER = get_default_server_url()
 
 
 def real_directory(path):
@@ -305,5 +305,7 @@ class DeliveryAgent:
                 self.ack(row)
         # Lease polling is the delivery heartbeat. /api/heartbeat is sender-only
         # in some backends, so never call it or upload/admin routes from this role.
-        atomic_json(self.data_dir / 'status.json', {'status': 'poll_ok', 'at': datetime.now(timezone.utc).isoformat(), 'pending_ack': len(self.state.pending())})
+        from updates import VERSION
+        atomic_json(self.data_dir / 'status.json', {'status': 'poll_ok', 'at': datetime.now(timezone.utc).isoformat(),
+                    'pid': os.getpid(), 'version': VERSION, 'pending_ack': len(self.state.pending())})
         return len(items)

@@ -1,8 +1,8 @@
-"""Explicit real Inno/helper upgrade in a disposable per-user installation.
+"""Explicit real Inno/self-EXE upgrade in a disposable per-user installation.
 
 Build a real, distinct future version in scratch first. This tests the detached
 applier, not public GitHub availability, real enrollment or clean Windows.
-The old *test* process is terminated after the helper handshake to exercise
+The old *test* process is terminated after the self-EXE handshake to exercise
 waiting/recovery; production processes and industrial directories are untouched.
 """
 import argparse
@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 
 from client.agent import Agent
 from client.state import Config, protect_token, save_config, unprotect_token
@@ -56,6 +57,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--allow-current-user-install', action='store_true', required=True)
     parser.add_argument('--future-root', type=Path, required=True)
+    parser.add_argument('--signing-key', type=Path, required=True, help='Explicit private DPAPI signing-key path; never published')
     parser.add_argument('--scratch', type=Path, required=True)
     args = parser.parse_args()
     if product() or startup_snapshot():
@@ -66,11 +68,16 @@ def main():
         raise RuntimeError('Existing default executable: nothing changed')
     original_profile = inventory(actual_default)
     original_startup = startup_snapshot()
-    old_record = json.loads((ROOT / 'dist/installers/TracerTransfer-Cliente-0.1.2-windows-x64-pilot-unsigned.json').read_text())
-    new_record = json.loads((args.future_root / 'dist/installers/TracerTransfer-Cliente-0.1.3-windows-x64-pilot-unsigned.json').read_text())
-    assert old_record['version'] == '0.1.2' and new_record['version'] == '0.1.3'
+    old_version = tomllib.loads((ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
+    new_version = tomllib.loads((args.future_root / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
+    from updates.core import version_tuple
+    if version_tuple(new_version) <= version_tuple(old_version):
+        raise ValueError('Future QA build must have a strictly newer version')
+    old_record = json.loads((ROOT / f'dist/installers/{old_version}/TracerTransfer-Cliente-{old_version}-windows-x64-pilot-unsigned.json').read_text())
+    new_record = json.loads((args.future_root / f'dist/installers/{new_version}/TracerTransfer-Cliente-{new_version}-windows-x64-pilot-unsigned.json').read_text())
     for record in (old_record, new_record):
-        for kind in ('installer', 'client', 'updater'):
+        assert 'updater' not in record
+        for kind in ('installer', 'client'):
             assert digest(record[kind]['path']) == record[kind]['sha256']
     args.scratch.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix='tracer-auto-installed-', dir=args.scratch))
@@ -101,14 +108,18 @@ def main():
         installed = True
         check_run([old_record['installer']['path'], '/VERYSILENT', '/SUPPRESSMSGBOXES',
                    '/NORESTART', '/SP-', '/TASKS=', '/DIR=' + str(install)], env=env)
-        assert product()['DisplayVersion'] == '0.1.2'
-        assert digest(install / 'TracerAtualizador.exe') == old_record['updater']['sha256']
+        assert product()['DisplayVersion'] == old_version
+        assert not (install / 'TracerAtualizador.exe').exists()
+        origin = install / 'deployment.json'
+        origin.write_text(json.dumps({'server_url': 'https://qa.invalid'}))
+        before_origin = origin.read_bytes()
         manifest = work / 'update-manifest.json'
         check_run([sys.executable, str(ROOT / 'scripts/sign_update_release.py'),
-                   '--version', '0.1.3', '--client', new_record['installer']['path'],
+                   '--version', new_version, '--client', new_record['installer']['path'],
+                   '--commit', new_record['build']['commit'], '--key-file', str(args.signing_key),
                    '--output', str(manifest)], cwd=ROOT)
         payload = verify_manifest(manifest.read_bytes())
-        assert payload['version'] == '0.1.3'
+        assert payload['version'] == new_version
         parent = subprocess.Popen([str(install / 'TracerCliente.exe'), '--headless',
                                    '--data-dir', str(data)], env=env,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -118,8 +129,8 @@ def main():
         (request / 'request.json').write_text(json.dumps({'schema': 1, 'pid': parent.pid}))
         (request / 'manifest.json').write_bytes(manifest.read_bytes())
         shutil.copy2(new_record['installer']['path'], request / payload['artifacts']['client']['name'])
-        shutil.copy2(install / 'TracerAtualizador.exe', request / 'TracerAtualizador.exe')
-        helper = subprocess.Popen([str(request / 'TracerAtualizador.exe'), '--client-request', str(request)],
+        shutil.copy2(install / 'TracerCliente.exe', request / 'TracerCliente.exe')
+        helper = subprocess.Popen([str(request / 'TracerCliente.exe'), '--apply-update', str(request)],
                                   env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         deadline = time.monotonic() + 30
         while not (request / 'ready').exists() and time.monotonic() < deadline:
@@ -127,7 +138,7 @@ def main():
                 raise RuntimeError('Frozen helper rejected real signed request')
             time.sleep(.1)
         assert (request / 'ready').is_file()
-        assert helper.poll() is None and product()['DisplayVersion'] == '0.1.2'
+        assert helper.poll() is None and product()['DisplayVersion'] == old_version
         # Only the Popen tree created above. Simulates shutdown/crash in this lab.
         check_run(['taskkill.exe', '/PID', str(parent.pid), '/T', '/F'])
         parent.wait(timeout=20)
@@ -135,21 +146,23 @@ def main():
         if helper.returncode:
             raise RuntimeError('Frozen helper application failed; inspect private state: ' + error.decode(errors='replace'))
         state = json.loads((request / 'state.json').read_text())
-        assert state == {'phase': 'complete', 'version': '0.1.3'}
-        assert product()['DisplayVersion'] == '0.1.3'
-        for kind, name in [('client', 'TracerCliente.exe'), ('updater', 'TracerAtualizador.exe')]:
+        assert state == {'phase': 'complete', 'version': new_version}
+        assert product()['DisplayVersion'] == new_version
+        for kind, name in [('client', 'TracerCliente.exe')]:
             assert digest(install / name) == new_record[kind]['sha256']
             assert digest(request / 'backup' / name) == old_record[kind]['sha256']
+        assert not (install / 'TracerAtualizador.exe').exists()
+        assert origin.read_bytes() == before_origin
         assert (data / 'config.json').read_bytes() == before_config
         assert unprotect_token(json.loads(before_config)['protected_token']) == secret
         with closing(sqlite3.connect(data / 'queue.sqlite3')) as db:
             assert db.execute('SELECT path,sha,name,snapshot,state FROM queue').fetchall() == [row]
         assert digest(snapshot) == row[1]
-        report = {'result': 'PASS', 'from': '0.1.2', 'to': '0.1.3-QA-only',
+        report = {'result': 'PASS', 'from': old_version, 'to': new_version + '-QA-only',
                   'signed_with_real_product_pin': True, 'real_inno_installer': True,
-                  'real_frozen_helper': True, 'parent_handshake_and_wait': True,
+                  'real_frozen_self_executable': True, 'installed_origin_preserved': True, 'parent_handshake_and_wait': True,
                   'first_binary_backups_verified': True, 'queue_identity_snapshot_preserved': True,
-                  'new_client_and_helper_hashes_verified': True,
+                  'new_client_hash_verified': True, 'fourth_executable_absent': True,
                   'production_device_enrollment_tested': False,
                   'public_github_discovery_tested': False, 'clean_windows': False,
                   'controlled_parent_termination': True, 'work_dir': str(work)}

@@ -13,9 +13,20 @@ import os
 import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
-from configuration import get_default_server_url
+from configuration import get_default_server_url, validate_server_url
 
-COMPANY_SERVER = get_default_server_url('https://tracer.example.com')
+COMPANY_SERVER = get_default_server_url()
+
+
+def authorized_sender_profile(config):
+    """An activated generic upgrade preserves its saved origin, never a new fallback."""
+    if not config.activated or config.delivery_mode != 'queued' or config.ca_file is not None:
+        return False
+    try:
+        validate_server_url(config.server_url)
+    except ValueError:
+        return False
+    return not COMPANY_SERVER or config.server_url.rstrip('/') == COMPANY_SERVER.rstrip('/')
 
 
 def file_signature(path):

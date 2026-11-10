@@ -9,7 +9,7 @@ import time
 import httpx
 from urllib.parse import quote
 from client.auth import http_client
-from client.state import read_config, unprotect_token, file_signature, COMPANY_SERVER
+from client.state import read_config, unprotect_token, file_signature, COMPANY_SERVER, authorized_sender_profile
 from client.status import Status
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
@@ -66,8 +66,7 @@ class Agent:
 
     def _authorized_config(self, config):
         if self.user_mode:
-            return (config.activated and config.delivery_mode == 'queued'
-                    and config.server_url == COMPANY_SERVER and config.ca_file is None)
+            return authorized_sender_profile(config)
         return config.delivery_mode == 'direct' or config.activated
 
     def _scan(self, config):

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import stat
 import sys
@@ -27,13 +28,15 @@ from updates.core import (
 )
 
 
-def sign_manifest(version, artifacts, key_file, days_valid=14, *, now=None):
+def sign_manifest(version, artifacts, key_file, days_valid=14, *, now=None, commit=None):
     """Return public envelope bytes. Private material never leaves this function."""
     version_tuple(version)
     if type(days_valid) is not int or not 1 <= days_valid <= 365:
         raise UpdateRejected('Validity must be 1..365 days.')
-    if not artifacts or not set(artifacts).issubset(KINDS):
-        raise UpdateRejected('Supply at least one known component.')
+    if len(artifacts) != 1 or not set(artifacts).issubset(KINDS):
+        raise UpdateRejected('Supply exactly one component per signed feed.')
+    if not isinstance(commit, str) or not re.fullmatch('[0-9a-f]{40}', commit):
+        raise UpdateRejected('Explicit full lowercase build commit SHA required.')
     key_file = _safe_path(Path(key_file))
     if key_file.is_relative_to(ROOT):
         raise UpdateRejected('Signing key must remain outside the repository.')
@@ -52,7 +55,8 @@ def sign_manifest(version, artifacts, key_file, days_valid=14, *, now=None):
         raise UpdateRejected('Signing clock must be timezone-aware.')
     now = now.astimezone(timezone.utc)
     payload = {
-        'schema': 1, 'repository': REPOSITORY, 'version': version, 'channel': 'pilot',
+        'schema': 2, 'repository': REPOSITORY, 'version': version, 'channel': 'pilot',
+        'component': next(iter(artifacts)), 'tag': 'v' + version, 'commit': commit,
         'published_at': now.isoformat().replace('+00:00', 'Z'),
         'expires_at': (now + timedelta(days=days_valid)).isoformat().replace('+00:00', 'Z'),
         'artifacts': {},
@@ -87,10 +91,11 @@ def sign_manifest(version, artifacts, key_file, days_valid=14, *, now=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--version', required=True, help='Strict release version x.y.z')
+    parser.add_argument('--commit', required=True, help='Full lowercase SHA of the compiled commit; release target_commitish must match')
     for component in KINDS:
         parser.add_argument('--' + component, type=Path)
-    parser.add_argument('--key-file', type=Path,
-                        default=Path.home() / '.tracer-transfer' / 'release-signing-key.dpapi')
+    parser.add_argument('--key-file', type=Path, required=True,
+                        help='Explicit private DPAPI key outside the repository; no implicit home-directory fallback')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--days-valid', type=int, default=14)
     args = parser.parse_args(argv)
@@ -98,7 +103,7 @@ def main(argv=None):
     try:
         data = sign_manifest(args.version,
                              {c: getattr(args, c) for c in KINDS if getattr(args, c) is not None},
-                             args.key_file, args.days_valid)
+                             args.key_file, args.days_valid, commit=args.commit)
         output = _safe_path(args.output)
         if os.path.lexists(output):
             raise UpdateRejected('Refusing to overwrite output.')

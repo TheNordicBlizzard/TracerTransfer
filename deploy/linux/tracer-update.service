@@ -1,0 +1,28 @@
+[Unit]
+Description=TracerTransfer signed server code update (explicit opt-in)
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/opt/tracer-transfer/current/server-release.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/tracer-transfer
+ExecStart=/opt/tracer-transfer/venv/bin/python -m server update --install-dir /opt/tracer-transfer
+TimeoutStartSec=15min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/tracer-transfer
+InaccessiblePaths=/var/lib/tracer-transfer /var/backups/tracer-transfer
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryMax=512M
+TasksMax=64
+StandardOutput=journal
+StandardError=journal

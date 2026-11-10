@@ -16,7 +16,7 @@ def main(argv=None):
     version=tomllib.loads((ROOT/'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--client-exe',type=Path,default=ROOT/'dist'/version/'TracerCliente.exe')
-    parser.add_argument('--delivery-exe',type=Path,default=ROOT/'dist/TracerEntregador.exe')
+    parser.add_argument('--delivery-exe',type=Path,default=ROOT/'dist'/version/'TracerEntregador.exe')
     args=parser.parse_args(argv)
     for exe in (args.client_exe,args.delivery_exe):
         if not exe.is_file():raise FileNotFoundError(exe)

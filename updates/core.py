@@ -30,7 +30,7 @@ MAX_MANIFEST_BYTES = 128 * 1024
 MAX_ARTIFACT_BYTES = 256 * 1024 * 1024
 MAX_API_BYTES = 1024 * 1024
 MAX_REDIRECTS = 5
-KINDS = {'client': 'inno-client', 'delivery': 'exe-delivery', 'updater': 'exe-updater'}
+KINDS = {'client': 'inno-client', 'delivery': 'exe-delivery', 'server': 'tar-server'}
 _REDIRECT_HOSTS = {'github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com'}
 _VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z')
 _SHA256 = re.compile(r'[0-9a-f]{64}\Z')
@@ -72,8 +72,8 @@ def artifact_name(component: str, version: str) -> str:
         return f'TracerTransfer-Cliente-{version}-windows-x64-pilot-unsigned.exe'
     if component == 'delivery':
         return 'TracerEntregador.exe'
-    if component == 'updater':
-        return 'TracerAtualizador.exe'
+    if component == 'server':
+        return f'TracerServidor-{version}-linux.tar.gz'
     raise UpdateRejected('Unknown update component.')
 
 
@@ -115,9 +115,9 @@ def _metadata(metadata):
         raise UpdateRejected('Invalid artifact size/hash.')
     name = metadata['name']
     if (not isinstance(name, str) or len(name) > 160 or '/' in name or '\\' in name
-            or not name.endswith('.exe') or ':' in name or name in {'.', '..'}):
+            or not name.endswith(('.exe', '.tar.gz')) or ':' in name or name in {'.', '..'}):
         raise UpdateRejected('Unsafe artifact name.')
-    if metadata['kind'] not in KINDS.values():
+    if not isinstance(metadata['kind'], str) or metadata['kind'] not in KINDS.values():
         raise UpdateRejected('Unknown artifact kind.')
 
 
@@ -137,11 +137,15 @@ def verify_manifest(envelope_bytes: bytes, *, public_key=PINNED_PUBLIC_KEY, now=
         key.verify(signature, canonical_payload(payload))
     except (InvalidSignature, ValueError, TypeError, binascii.Error, RecursionError) as exc:
         raise UpdateRejected('Manifest signature rejected.') from exc
-    if set(payload) != {'schema', 'repository', 'version', 'channel', 'published_at', 'expires_at', 'artifacts'}:
+    if set(payload) != {'schema', 'repository', 'version', 'channel', 'published_at', 'expires_at', 'artifacts', 'component', 'tag', 'commit'}:
         raise UpdateRejected('Unknown manifest schema fields.')
-    if type(payload['schema']) is not int or payload['schema'] != 1 or payload['repository'] != REPOSITORY or payload['channel'] != 'pilot':
+    if type(payload['schema']) is not int or payload['schema'] != 2 or payload['repository'] != REPOSITORY or payload['channel'] != 'pilot':
         raise UpdateRejected('Manifest scope/schema mismatch.')
     version_tuple(payload['version'])
+    if (not isinstance(payload['component'], str) or payload['component'] not in KINDS or payload['tag'] != 'v' + payload['version']
+            or not isinstance(payload['commit'], str)
+            or not re.fullmatch('[0-9a-f]{40}', payload['commit'])):
+        raise UpdateRejected('Manifest component/tag/commit mismatch.')
     published, expires = _timestamp(payload['published_at']), _timestamp(payload['expires_at'])
     now = datetime.now(timezone.utc) if now is None else now
     if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
@@ -149,7 +153,7 @@ def verify_manifest(envelope_bytes: bytes, *, public_key=PINNED_PUBLIC_KEY, now=
     if published > now or expires <= now or expires <= published:
         raise UpdateRejected('Manifest expired or published in the future.')
     artifacts = payload['artifacts']
-    if not isinstance(artifacts, dict) or not artifacts or not set(artifacts).issubset(KINDS):
+    if not isinstance(artifacts, dict) or set(artifacts) != {payload['component']}:
         raise UpdateRejected('Invalid artifact components.')
     for component, metadata in artifacts.items():
         _metadata(metadata)
@@ -341,14 +345,16 @@ def prepare_update(component, current_version, cache_dir, *, http=None,
         raise UpdateRejected('Downgrade rejected.')
     if candidate == current:
         return None  # Same release is not an update and no artifact is accepted.
-    manifest_asset = assets.get('update-manifest.json')
+    feed_name = f'update-feed-{component}.json'
+    manifest_asset = assets.get(feed_name)
     if manifest_asset is None:
         raise UpdateUnavailable('Signed update manifest not published.')
     manifest_url = manifest_asset.get('browser_download_url')
-    _url(manifest_url, initial=True, tag=tag, name='update-manifest.json')
+    _url(manifest_url, initial=True, tag=tag, name=feed_name)
     manifest_bytes = _download(http, manifest_url, MAX_MANIFEST_BYTES)
     payload = verify_manifest(manifest_bytes, public_key=public_key, now=now)
-    if payload['version'] != version:
+    if (payload['version'] != version or payload['component'] != component
+            or release.get('target_commitish') != payload['commit']):
         raise UpdateRejected('Signed manifest not bound to release tag.')
     # Bind every signed artifact (not only the requested component) to this release.
     for metadata in payload['artifacts'].values():

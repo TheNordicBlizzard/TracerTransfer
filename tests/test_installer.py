@@ -54,6 +54,15 @@ def test_reject_data_deletion(recipe, section):
         validate_recipe(recipe + f'\n[{section}]\nType: filesandordirs; Name: "{{localappdata}}\\TracerTransfer"\n')
 
 
+def test_optional_origin_profile_is_preserved_on_upgrade(recipe):
+    entries = sections(recipe)['files']
+    assert len(entries) == 2
+    profile = next(line for line in entries if 'deployment.json' in line)
+    assert 'onlyifdoesntexist' in profile
+    assert '#ifdef ClientProfile' in recipe
+    assert 'TracerAtualizador.exe' not in recipe
+
+
 def test_only_public_client_is_bundled(recipe):
     mutated = recipe.replace('[Icons]', 'Source: "server.db"; DestDir: "{app}"\n\n[Icons]')
     with pytest.raises(ValueError, match='Only the public client'):
@@ -149,11 +158,11 @@ def artifact():
     version = tomllib.loads((ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
     import os
     explicit = os.environ.get('TRACER_INSTALLER_MANIFEST')
-    path = Path(explicit) if explicit else ROOT / f'dist/installers/TracerTransfer-Cliente-{version}-windows-x64-pilot-unsigned.json'
+    path = Path(explicit) if explicit else ROOT / f'dist/installers/{version}/TracerTransfer-Cliente-{version}-windows-x64-pilot-unsigned.json'
     if not path.is_file():
         if explicit:
             pytest.fail('Explicit installer manifest does not exist: '+str(path))
-        pytest.skip('Build the pilot installer first')
+        pytest.fail('Build the current pilot installer first: ' + str(path))
     return path
 
 
@@ -184,9 +193,9 @@ def test_no_unproven_gate_claims(artifact, tmp_path):
 def test_real_package_extraction_without_installing(artifact, tmp_path):
     unpacker = os.environ.get('INNOUNP') or shutil.which('innounp.exe')
     if not unpacker:
-        pytest.skip('Set INNOUNP for real package verification')
+        pytest.fail('Set INNOUNP for real package verification')
     record = validate_manifest(artifact)
     result = unpack_and_verify(record, unpacker, tmp_path)
     assert result['extracted_client_sha256'] == record['client']['sha256']
-    assert set(result['public_payloads']) == {'{app}/TracerCliente.exe', '{app}/TracerAtualizador.exe'}
-    assert result['extracted_updater_sha256'] == record['updater']['sha256']
+    assert set(result['public_payloads']) == {'{app}/TracerCliente.exe'}
+    assert 'updater' not in record

@@ -68,6 +68,7 @@ def exclusive_lock(path):
 class ProcessHandle:
     """Hold the precise process object across shutdown, avoiding PID reuse races."""
     def __init__(self, pid, expected_executable):
+        self.bootloader = None
         if os.name != 'nt' or type(pid) is not int or pid <= 0 or pid == os.getpid():
             raise ValueError('Invalid Windows parent PID')
         kernel = self.kernel = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -87,6 +88,27 @@ class ProcessHandle:
                 raise ctypes.WinError(ctypes.get_last_error())
             if real_path(buffer.value) != real_path(expected_executable):
                 raise ValueError('Parent executable mismatch')
+            # One-file PyInstaller uses an outer process holding the same image.
+            # Its exact handle must be retained too, not guessed again by PID later.
+            if getattr(sys, 'frozen', False):
+                class BasicInfo(ctypes.Structure):
+                    _fields_ = [('reserved1', ctypes.c_void_p), ('peb', ctypes.c_void_p),
+                                ('reserved2', ctypes.c_void_p * 2), ('pid', ctypes.c_size_t),
+                                ('parent_pid', ctypes.c_size_t)]
+                info = BasicInfo()
+                query = ctypes.WinDLL('ntdll').NtQueryInformationProcess
+                query.argtypes = [wintypes.HANDLE, wintypes.ULONG, ctypes.c_void_p, wintypes.ULONG, ctypes.c_void_p]
+                query.restype = wintypes.LONG
+                if query(self.handle, 0, ctypes.byref(info), ctypes.sizeof(info), None) != 0:
+                    raise OSError('Cannot inspect parent process identity')
+                if info.parent_pid and info.parent_pid != os.getpid():
+                    outer = kernel.OpenProcess(0x100000 | 0x1000, False, info.parent_pid)
+                    if outer:
+                        size = wintypes.DWORD(len(buffer))
+                        if kernel.QueryFullProcessImageNameW(outer, 0, buffer, ctypes.byref(size)) and real_path(buffer.value) == real_path(expected_executable):
+                            self.bootloader = outer
+                        else:
+                            kernel.CloseHandle(outer)
         except BaseException:
             self.close()
             raise
@@ -95,8 +117,13 @@ class ProcessHandle:
         result = self.kernel.WaitForSingleObject(self.handle, int(seconds * 1000))
         if result != 0:
             raise TimeoutError('Client did not exit; no binaries changed')
+        if self.bootloader and self.kernel.WaitForSingleObject(self.bootloader, int(seconds * 1000)) != 0:
+            raise TimeoutError('Bootloader did not exit; no binaries changed')
 
     def close(self):
+        if self.bootloader:
+            self.kernel.CloseHandle(self.bootloader)
+            self.bootloader = None
         if self.handle:
             self.kernel.CloseHandle(self.handle)
             self.handle = None
@@ -107,6 +134,8 @@ def verified_request(directory):
     from updates.core import verify_manifest, verify_artifact, version_tuple
     directory = real_path(directory)
     payload = verify_manifest(real_path(directory / 'manifest.json').read_bytes())
+    if payload['component'] != 'client':
+        raise ValueError('Wrong update component')
     if version_tuple(payload['version']) <= version_tuple(VERSION):
         raise ValueError('Client downgrade/replay rejected')
     metadata = payload['artifacts']['client']
@@ -131,10 +160,10 @@ def apply_client(directory, *, run=subprocess.run, start=subprocess.Popen):
     if directory.parent != cache or not directory.name.startswith('request-'):
         raise ValueError('Request outside installed user profile')
     plan = json.loads((directory / 'request.json').read_text(encoding='utf-8'))
-    if set(plan) != {'schema', 'pid'} or plan['schema'] != 1:
+    if set(plan) != {'schema', 'pid'} or type(plan['schema']) is not int or plan['schema'] != 1:
         raise ValueError('Unexpected request fields')
     client = real_path(install / 'TracerCliente.exe')
-    helper = real_path(install / 'TracerAtualizador.exe')
+
     with exclusive_lock(cache / 'apply.lock'):
         journal = directory / 'state.json'
         if journal.exists() and json.loads(journal.read_text(encoding='utf-8')).get('phase') in ('installing', 'failed', 'installed', 'complete'):
@@ -150,7 +179,7 @@ def apply_client(directory, *, run=subprocess.run, start=subprocess.Popen):
         # Snapshot first binaries exactly once, after the client process releases them.
         backups = directory / 'backup'
         backups.mkdir(exist_ok=False)
-        for binary in (client, helper):
+        for binary in (client,):
             shutil.copy2(binary, backups / binary.name)
         atomic_state(journal, {'phase': 'installing'})
         try:
@@ -158,11 +187,11 @@ def apply_client(directory, *, run=subprocess.run, start=subprocess.Popen):
             result = run(installer_arguments(artifact, install), cwd=directory, check=False)
             if result.returncode != 0:  # 3010 is not accepted: no automatic reboot path.
                 raise RuntimeError('Installer failed: ' + str(result.returncode))
-            if not client.is_file() or not helper.is_file():
+            if not client.is_file():
                 raise RuntimeError('Installer did not leave installed executables')
             atomic_state(journal, {'phase': 'installed', 'version': payload['version']})
         except Exception as exc:
-            for binary in (client, helper):
+            for binary in (client,):
                 shutil.copy2(backups / binary.name, binary)
             atomic_state(journal, {'phase': 'failed', 'error': type(exc).__name__, 'binaries_restored': True})
             raise
@@ -173,13 +202,17 @@ def apply_client(directory, *, run=subprocess.run, start=subprocess.Popen):
 
 def launch_client(prepared, data_dir):
     """Called only between transfer cycles under Agent.lock. Handshake before exit."""
+    if prepared.component != 'client':
+        raise ValueError('Wrong update component')
     install, expected_data = client_paths()
     if real_path(data_dir) != real_path(expected_data) or real_path(sys.executable) != real_path(install / 'TracerCliente.exe'):
         raise ValueError('Automatic updates require installed per-user client')
     cache = real_path(expected_data / 'updates')
-    cache.mkdir(exist_ok=True)
+    from updates.core import _private_directory
+    _private_directory(cache)
     request = cache / ('request-' + uuid.uuid4().hex)
     request.mkdir()
+    _private_directory(request)
     (request / 'manifest.json').write_bytes(prepared.manifest_bytes)
     artifact = request / prepared.artifact_metadata['name']
     if artifact.parent != request:
@@ -187,10 +220,10 @@ def launch_client(prepared, data_dir):
     shutil.copy2(prepared.artifact, artifact)
     verified_request(request)
     atomic_state(request / 'request.json', {'schema': 1, 'pid': os.getpid()})
-    # Never run the installed helper in place: Inno must be able to replace it.
-    helper = request / 'TracerAtualizador.exe'
+    # Same EXE detached: Inno must be able to replace the installed image.
+    helper = request / 'TracerCliente.exe'
     shutil.copy2(real_path(install / helper.name), helper)
-    process = subprocess.Popen([str(helper), '--client-request', str(request)], cwd=request,
+    process = subprocess.Popen([str(helper), '--apply-update', str(request)], cwd=request,
                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
@@ -204,23 +237,19 @@ def launch_client(prepared, data_dir):
 
 
 def launch_delivery(prepared, base_dir):
-    """Trigger or launch delivery service update."""
-    base = real_path(base_dir)
-    private = base / 'updater'
-    helper = private / 'TracerAtualizador.exe'
-    if not helper.is_file():
-        raise FileNotFoundError('TracerAtualizador.exe missing from updater directory')
+    """LocalService may only trigger the administrator-provisioned SYSTEM task.
+
+    The staged LocalService artifact/manifest is deliberately NOT passed to SYSTEM.
+    The trusted applier discovers and verifies its own release in protected storage.
+    """
+    real_path(base_dir)
     try:
-        res = subprocess.run(['schtasks.exe', '/run', '/tn', 'TracerTransferDelivery-AutoUpdate'],
-                             capture_output=True, check=False)
-        if res.returncode == 0:
-            return True
-    except (OSError, FileNotFoundError):
-        pass
-    flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-    flags |= getattr(subprocess, 'DETACHED_PROCESS', 0x00000008)
-    subprocess.Popen([str(helper), '--service', '--base-directory', str(base)],
-                     cwd=private, creationflags=flags)
+        result = subprocess.run(['schtasks.exe', '/run', '/tn', SERVICE_NAME + '-AutoUpdate'],
+                                capture_output=True, check=False)
+    except OSError as exc:
+        raise PermissionError('SYSTEM update task unavailable; no LocalService fallback') from exc
+    if result.returncode:
+        raise PermissionError('SYSTEM update task refused; administrator opt-in required')
     return True
 
 
@@ -230,6 +259,16 @@ def service_guard(base):
     script = r'''$ErrorActionPreference='Stop'
 $b=$env:TT_UPDATE_BASE
 $id='TracerTransferDelivery'
+if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne 'S-1-5-18'){throw 'SYSTEM token required'}
+$task=Get-ScheduledTask -TaskName ($id+'-AutoUpdate') -TaskPath '\'
+$expectedArgs='--update --base-directory "'+$b+'"'
+if($task.Principal.UserId -notin @('SYSTEM','S-1-5-18','NT AUTHORITY\SYSTEM') -or $task.Principal.RunLevel -ne 'Highest' -or @($task.Actions).Count -ne 1 -or $task.Actions.Execute -ne "$b\bin\TracerEntregador.exe" -or $task.Actions.Arguments -cne $expectedArgs -or $task.Actions.WorkingDirectory -ne "$b\updater"){throw 'Unexpected update task'}
+$scheduler=New-Object -ComObject Schedule.Service
+$scheduler.Connect()
+$taskSecurity=$scheduler.GetFolder('\').GetTask($id+'-AutoUpdate').GetSecurityDescriptor(7)
+$descriptor=New-Object Security.AccessControl.CommonSecurityDescriptor($false,$false,$taskSecurity)
+if($descriptor.Owner.Value -notin @('S-1-5-18','S-1-5-32-544')){throw 'Untrusted task owner'}
+foreach($ace in $descriptor.DiscretionaryAcl){if($ace.AceQualifier -eq 'AccessAllowed' -and $ace.SecurityIdentifier.Value -notin @('S-1-5-18','S-1-5-32-544') -and ($ace.AccessMask -band 0x500D0006)){throw 'Writable update task'}}
 $trustedInstaller=(New-Object Security.Principal.NTAccount('NT SERVICE','TrustedInstaller')).Translate([Security.Principal.SecurityIdentifier]).Value
 $ancestor=[IO.Path]::GetDirectoryName($b)
 while($ancestor){
@@ -248,7 +287,10 @@ if(!$s -or ![String]::Equals([IO.Path]::GetFullPath($s.PathName.Trim('"')),$wrap
 if($s.State -ne 'Running'){throw 'Delivery stopped; automatic updater must not start a stopped service'}
 [xml]$config=Get-Content -LiteralPath "$b\$id.xml" -Raw
 if($config.service.id -ne $id -or $config.service.executable -cne '%BASE%\bin\TracerEntregador.exe' -or $config.service.serviceaccount.user -ne 'LocalService'){throw 'Unexpected wrapper configuration'}
-foreach($p in @($b,"$b\bin","$b\bin\TracerEntregador.exe",$wrapper,"$b\$id.xml","$b\updater")){
+$protected=@($b,"$b\bin","$b\bin\TracerEntregador.exe",$wrapper,"$b\$id.xml","$b\updater")
+$protected+=@(Get-ChildItem -LiteralPath "$b\updater" -Recurse -Force | ForEach-Object {$_.FullName})
+foreach($p in $protected){
+ if((Get-Item -LiteralPath $p -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Privileged reparse point'}
  $a=Get-Acl -LiteralPath $p
  $owner=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value
  if($owner -notin @('S-1-5-18','S-1-5-32-544')){throw 'Privileged owner required'}
@@ -277,6 +319,9 @@ def apply_service(base):
     base = service_guard(base)
     private = real_path(base / 'updater')
     with exclusive_lock(private / 'apply.lock'):
+        state_file = private / 'state.json'
+        if state_file.is_file() and json.loads(state_file.read_text(encoding='utf-8')).get('phase') in ('applying', 'failed'):
+            raise ValueError('Prior service update requires recovery reconciliation')
         version_file = private / 'installed_version'
         if not version_file.is_file():
             raise ValueError('Installed delivery version missing; bootstrap must record the real version')
@@ -292,9 +337,14 @@ def apply_service(base):
             atomic_state(private / 'state.json', {'phase': 'current', 'version': current})
             return
         payload = verify_manifest(prepared.manifest_bytes)
+        if (payload['component'] != 'delivery' or prepared.component != 'delivery'
+                or prepared.version != payload['version']):
+            raise ValueError('Delivery component/version mismatch')
         if version_tuple(payload['version']) <= version_tuple(current):
             raise ValueError('Delivery downgrade/replay rejected')
         metadata = payload['artifacts']['delivery']
+        if prepared.artifact.name != metadata['name']:
+            raise ValueError('Delivery artifact name mismatch')
         verify_artifact(prepared.artifact, metadata)
         script = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent.parent)) / 'deploy' / 'windows-delivery' / 'Update-Delivery.ps1'
         if not script.is_file():
@@ -316,27 +366,67 @@ def apply_service(base):
         atomic_state(private / 'state.json', {'phase': 'complete', 'version': payload['version']})
 
 
-def main(argv=None):
-    import argparse
-    parser = argparse.ArgumentParser(description='TracerTransfer detached Windows updater')
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('--client-request', type=Path)
-    group.add_argument('--service', action='store_true')
-    parser.add_argument('--base-directory', type=Path)
-    args = parser.parse_args(argv)
-    if os.name != 'nt':
-        parser.error('Windows required')
+def client_update_main(directory):
+    return _update_result(lambda: apply_client(directory))
+
+
+def _update_result(action):
     try:
-        if args.client_request:
-            if args.base_directory:
-                parser.error('base-directory is service-only')
-            apply_client(args.client_request)
-        else:
-            if args.base_directory is None:
-                parser.error('service requires base-directory')
-            apply_service(args.base_directory)
+        if os.name != 'nt':
+            raise OSError('Windows required')
+        action()
         return 0
     except Exception as exc:
-        # No network responses, credentials, or attacker-controlled command strings in logs.
-        print('Update unavailable/failed: ' + type(exc).__name__, file=sys.stderr)
+        # Windowed builds have no stderr; never stringify untrusted exception text.
+        if sys.stderr is not None:
+            print('Update unavailable/failed: ' + type(exc).__name__, file=sys.stderr)
         return 1
+
+
+def detach_service(base):
+    """SYSTEM task launches its own protected copy, then releases installed EXE."""
+    base = service_guard(base)
+    installed = real_path(base / 'bin' / 'TracerEntregador.exe')
+    if real_path(sys.executable) != installed:
+        raise ValueError('Update launcher must be the installed delivery executable')
+    private = real_path(base / 'updater')
+    with exclusive_lock(private / 'launch.lock'):
+        request = private / ('run-' + uuid.uuid4().hex)
+        request.mkdir()
+        helper = request / 'TracerEntregador.exe'
+        shutil.copy2(installed, helper)
+        atomic_state(request / 'request.json', {'schema': 1, 'pid': os.getpid()})
+        process = subprocess.Popen([str(helper), '--apply-update', str(request),
+                                    '--base-directory', str(base)], cwd=request,
+                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if (request / 'ready').is_file():
+                return
+            if process.poll() is not None:
+                raise RuntimeError('Protected detached copy rejected request')
+            time.sleep(0.05)
+        raise TimeoutError('Protected detached copy handshake timed out')
+
+
+def apply_detached_service(base, request):
+    base = service_guard(base)
+    request = real_path(request)
+    if request.parent != base / 'updater' or not request.name.startswith('run-'):
+        raise ValueError('Detached request outside protected directory')
+    if real_path(sys.executable) != request / 'TracerEntregador.exe':
+        raise ValueError('Applier must run the protected self-copy')
+    plan = json.loads((request / 'request.json').read_text(encoding='utf-8'))
+    if set(plan) != {'schema', 'pid'} or type(plan['schema']) is not int or plan['schema'] != 1:
+        raise ValueError('Unexpected detached request fields')
+    handle = ProcessHandle(plan['pid'], base / 'bin' / 'TracerEntregador.exe')
+    try:
+        (request / 'ready').write_text('ready', encoding='ascii')
+        handle.wait(180)
+    finally:
+        handle.close()
+    apply_service(base)
+
+
+def delivery_update_main(base, request=None):
+    return _update_result(lambda: detach_service(base) if request is None else apply_detached_service(base, request))

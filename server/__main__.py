@@ -291,6 +291,10 @@ def run_gui(args, db, instance_lock=None):
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == 'update':
+        from server.update import main as update_main
+        return update_main(argv[1:])
     parser = argparse.ArgumentParser(description='TracerTransfer server: loopback only; use HTTPS reverse proxy')
     default = Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'TracerTransfer'/'server'
     parser.add_argument('--data-dir',type=Path,default=default)

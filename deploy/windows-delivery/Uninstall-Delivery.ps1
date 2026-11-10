@@ -13,6 +13,20 @@ $p=[IO.Path]::GetFullPath($state.OutputDirectory)
 while($p){if(Test-Path -LiteralPath $p){if((Get-Item -LiteralPath $p -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Output links/junctions forbidden'}};$p=[IO.Path]::GetDirectoryName($p)}
 if($ValidateOnly){Write-Output 'PASS: uninstall validated without changes; data/output will be preserved';exit 0}
 if(!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Administrator token required'}
+$taskName=$id+'-AutoUpdate'
+$applyLock=$null
+if(Test-Path -LiteralPath "$BaseDirectory\updater\apply.lock"){
+    $applyLock=[IO.File]::Open("$BaseDirectory\updater\apply.lock",'Open','ReadWrite','None')
+}
+try{
+$task=Get-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction SilentlyContinue
+if($task){
+    $expected=Join-Path ([IO.Path]::GetFullPath($BaseDirectory)) 'bin\TracerEntregador.exe'
+    if(@($task.Actions).Count -ne 1 -or $task.Actions.Execute -ne $expected -or $task.Actions.Arguments -cne ('--update --base-directory "'+[IO.Path]::GetFullPath($BaseDirectory).TrimEnd('\')+'"')){throw 'Unexpected updater task; inspect manually'}
+    if($task.State -eq 'Running'){throw 'Update task active; wait for completion before uninstall'}
+    Unregister-ScheduledTask -TaskName $taskName -TaskPath '\' -Confirm:$false
+    if(Get-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction SilentlyContinue){throw 'Update task removal failed'}
+}
 if($service){
     if($service.State -ne 'Stopped'){Stop-Service $id}
     (Get-Service $id).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(60))
@@ -31,3 +45,4 @@ Set-Acl -LiteralPath $state.OutputDirectory -AclObject $acl
 $remaining=@((Get-Acl -LiteralPath $state.OutputDirectory).Access|Where-Object {!$_.IsInherited -and $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq $state.ServiceSid})
 if($remaining.Count){throw 'Service removed but output SID cleanup needs inspection'}
 Write-Output 'PASS: service removed. Output, original files, DPAPI identity and journal preserved; revoke device centrally if retiring. No data purge performed.'
+}finally{if($applyLock){$applyLock.Dispose()}}

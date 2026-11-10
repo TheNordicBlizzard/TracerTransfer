@@ -40,7 +40,18 @@ def main(argv=None):
     parser.add_argument('--output-dir', default=get_default_output_dir('C:/FreeForm/Tracer'))
     parser.add_argument('--poll-seconds', type=float, default=5)
     parser.add_argument('--once', action='store_true', help='One isolated polling cycle; no service installation')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--update', action='store_true', help='Internal SYSTEM task: detach protected self-copy')
+    mode.add_argument('--apply-update', type=Path, metavar='REQUEST_DIR', help='Internal detached SYSTEM applier')
+    parser.add_argument('--base-directory', type=Path)
     args = parser.parse_args(argv)
+    if args.update or args.apply_update:
+        if args.base_directory is None:
+            parser.error('update modes require base-directory')
+        from updates.windows import delivery_update_main
+        return delivery_update_main(args.base_directory, args.apply_update)
+    if args.base_directory:
+        parser.error('base-directory requires an update mode')
     if not 0.1 <= args.poll_seconds <= 3600:
         parser.error('poll-seconds must be between 0.1 and 3600')
     directory = real_directory(args.data_dir)
@@ -64,6 +75,7 @@ def main(argv=None):
                     bootstrap.unlink()
                 if agent is None:
                     agent = DeliveryAgent(directory, args.output_dir, state=state)
+                    agent.stop_event = stop
                     from updates.runtime import installed_delivery, DeliveryUpdates
                     agent.auto_update = installed_delivery(directory, once=args.once)
                     if agent.auto_update:
@@ -85,6 +97,7 @@ def main(argv=None):
                 return 0
             stop.wait(args.poll_seconds)
     finally:
+        stop.set()
         if updates:
             updates.close()
         if agent:

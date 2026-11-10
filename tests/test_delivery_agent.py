@@ -430,6 +430,8 @@ def test_deployment_validate_only_rejects_untrusted_wrapper_without_changes(tmp_
     if script_name == 'Install-Delivery.ps1':
         command += ['-OutputDirectory',str(output),'-WrapperPath',str(wrapper),'-BinaryPath',str(wrapper),
                     '-ExpectedBinarySha256',hashlib.sha256(wrapper.read_bytes()).hexdigest()]
+    elif script_name == 'Update-Delivery.ps1':
+        command += ['-BinaryPath', str(wrapper), '-ExpectedBinarySha256', hashlib.sha256(wrapper.read_bytes()).hexdigest()]
     before = set(tmp_path.rglob('*'))
     result = subprocess.run(command,capture_output=True,text=True,errors='replace',timeout=20)
     assert result.returncode != 0

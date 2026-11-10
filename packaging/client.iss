@@ -59,8 +59,8 @@ Name: "startup"; Description: "Iniciar na bandeja ao entrar no Windows (opcional
 
 [Files]
 Source: "{#ClientExe}"; DestDir: "{app}"; DestName: "TracerCliente.exe"; Flags: ignoreversion
-#ifdef UpdaterExe
-Source: "{#UpdaterExe}"; DestDir: "{app}"; DestName: "TracerAtualizador.exe"; Flags: ignoreversion
+#ifdef ClientProfile
+Source: "{#ClientProfile}"; DestDir: "{app}"; DestName: "deployment.json"; Flags: onlyifdoesntexist uninsneveruninstall
 #endif
 
 [Icons]

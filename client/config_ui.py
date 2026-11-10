@@ -238,7 +238,7 @@ class ClientUI:
                 command=lambda e=enabled: self._submit(lambda: self.service.startup(e)))
             button.pack(side='left', padx=(8, 0))
             start_buttons.append(button)
-        ttk.Label(footer, text=COMPANY_SERVER, style='Tracer.Muted.TLabel').pack(anchor='w', pady=(8, 0))
+        ttk.Label(footer, text=COMPANY_SERVER or read_config(self.agent.data_dir).server_url or 'Servidor não configurado: solicite o pacote empresarial.', style='Tracer.Muted.TLabel').pack(anchor='w', pady=(8, 0))
         ttk.Label(footer, text='Recebido no servidor ≠ entregue ao destino. Arquivos anteriores à ativação são ignorados.\n'
                   'Fechar mantém na bandeja; Sair encerra o cliente.', style='Tracer.Muted.TLabel',
                   wraplength=700).pack(anchor='w', pady=(6, 0))

@@ -1,0 +1,11 @@
+[Unit]
+Description=Check signed TracerTransfer server updates daily (disabled by default)
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=2h
+Persistent=true
+Unit=tracer-update.service
+
+[Install]
+WantedBy=timers.target

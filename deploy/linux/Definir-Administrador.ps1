@@ -7,7 +7,9 @@ if ($VMHost -eq '192.0.2.10' -and (Test-Path (Join-Path $PSScriptRoot '..\..\dep
     } catch {}
 }
 if($Username -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$' -or $VMHost -notmatch '^[A-Za-z0-9.-]+$'){throw 'Invalid administrator/host'}
-$key=Join-Path $HOME '.ssh\id_ed25519_tracer_vm'
+$project=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$private=Join-Path (Split-Path $project -Parent) 'TracerTransfer-Private'
+$key=Join-Path $private 'ssh\id_ed25519_tracer_vm'
 $known=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\tracer-vm.known_hosts'))
 foreach($file in @($key,$known)){if(!(Test-Path -LiteralPath $file -PathType Leaf)){throw 'Administrative SSH files missing'}}
 $ssh=(Get-Command ssh.exe).Source

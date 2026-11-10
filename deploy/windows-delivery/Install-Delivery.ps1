@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference='Stop'
 $id='TracerTransferDelivery'
 $expectedWrapper='923111C7142B3DC783A3C722B19B8A21BCB78222D7A136AC33F0CA8A29F4CB66'
-if(!$BinaryPath){$BinaryPath=Join-Path $PSScriptRoot '..\..\dist\TracerEntregador.exe'}
+if(!$BinaryPath){$BinaryPath=Join-Path $PSScriptRoot 'bin\TracerEntregador.exe'}
 if(!$WrapperPath){$WrapperPath=Join-Path $PSScriptRoot 'WinSW.NET4.exe'}
 function Native($Exe,[string[]]$Arguments){ & $Exe @Arguments; if($LASTEXITCODE -ne 0){throw "Native prerequisite/action failed: $Exe"} }
 function RealPath([string]$Path){

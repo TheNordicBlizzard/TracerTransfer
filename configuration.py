@@ -1,86 +1,107 @@
-"""Deployment configuration loader for TracerTransfer.
-
-Decouples deployment endpoints (server HTTPS URL, output directories,
-and administrative SSH hosts) from generic application source code.
-"""
+"""Strict deployment loader: private operator profiles never enter public packages."""
 from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import sys
+from urllib.parse import urlsplit
 
-DEFAULT_GENERIC_SERVER = 'https://tracer.example.com'
+DEFAULT_GENERIC_SERVER = ''
 DEFAULT_GENERIC_OUTPUT_DIR = 'C:/FreeForm/Tracer'
 
 
-def _candidate_config_paths() -> list[Path]:
-    candidates = []
-    env_path = os.environ.get('TRACER_DEPLOYMENT_CONFIG')
-    if env_path:
-        candidates.append(Path(env_path))
+def validate_server_url(value):
+    if not isinstance(value, str) or not value or any(ord(c) <= 32 or ord(c) == 127 for c in value):
+        raise ValueError('Servidor não configurado ou origem HTTPS inválida.')
+    origin = urlsplit(value)
+    try:
+        port = origin.port
+    except ValueError:
+        raise ValueError('Porta HTTPS inválida.') from None
+    if (origin.scheme != 'https' or not origin.hostname or origin.username is not None
+            or origin.password is not None or origin.query or origin.fragment
+            or origin.path not in ('', '/') or (port is not None and not 1 <= port <= 65535)
+            or '\\' in value):
+        raise ValueError('Configure uma origem HTTPS sem credenciais, caminho ou query.')
+    return value
 
+
+def _candidate_config_paths():
+    explicit = os.environ.get('TRACER_DEPLOYMENT_CONFIG')
+    if explicit is not None:
+        if not explicit:
+            raise ValueError('TRACER_DEPLOYMENT_CONFIG não pode estar vazio.')
+        return [Path(explicit)]
     if getattr(sys, 'frozen', False):
-        exe_dir = Path(sys.executable).resolve().parent
-        candidates.append(exe_dir / 'deployment.local.json')
-        candidates.append(exe_dir / 'deployment.json')
-
+        installed = Path(sys.executable).parent
+        bundled = Path(getattr(sys, '_MEIPASS', installed))
+        return [installed / 'deployment.json', bundled / 'deployment.json']
     root = Path(__file__).resolve().parent
-    candidates.append(root / 'deployment.local.json')
-    candidates.append(root / 'deployment.json')
-    candidates.append(root / 'deploy' / 'deployment.local.json')
-    candidates.append(root / 'deploy' / 'deployment.json')
-    return candidates
+    return [root / 'deployment.local.json', root / 'deployment.json']
 
 
-def load_deployment_config() -> dict:
+def _object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('Campo de implantação duplicado.')
+        result[key] = value
+    return result
+
+
+def load_deployment_config():
+    explicit = 'TRACER_DEPLOYMENT_CONFIG' in os.environ
     for path in _candidate_config_paths():
-        try:
-            if path.is_file():
-                return json.loads(path.read_text(encoding='utf-8-sig'))
-        except Exception:
+        if not path.exists():
+            if explicit:
+                raise ValueError('Arquivo de implantação explícito não encontrado.')
             continue
+        if path.is_symlink() or path.is_junction() or not path.is_file() or path.stat().st_size > 16384:
+            raise ValueError('Arquivo de implantação inseguro ou excessivo.')
+        try:
+            cfg = json.loads(path.read_text(encoding='utf-8-sig'), object_pairs_hook=_object)
+        except (OSError, UnicodeError, ValueError):
+            raise ValueError('Arquivo de implantação inválido; nenhum fallback foi utilizado.') from None
+        allowed = {'server_url', 'delivery_output_dir', 'admin_ssh_host', 'backup_ssh_host'}
+        if not isinstance(cfg, dict) or set(cfg) - allowed or any(not isinstance(v, str) or not v for v in cfg.values()):
+            raise ValueError('Campos de implantação desconhecidos ou inválidos.')
+        if getattr(sys, 'frozen', False) and set(cfg) - {'server_url'}:
+            raise ValueError('Produto distribuído aceita apenas o endpoint, não o perfil administrativo.')
+        if 'server_url' in cfg:
+            validate_server_url(cfg['server_url'])
+        return cfg
     return {}
 
 
-def get_default_server_url(default: str = DEFAULT_GENERIC_SERVER) -> str:
-    env_val = os.environ.get('TRACER_SERVER_URL')
-    if env_val and env_val.strip():
-        return env_val.strip()
-    cfg = load_deployment_config()
-    server = cfg.get('server_url')
-    if server and isinstance(server, str) and server.strip():
-        return server.strip()
-    return default
+def get_default_server_url(default=DEFAULT_GENERIC_SERVER):
+    if 'TRACER_SERVER_URL' in os.environ:
+        return validate_server_url(os.environ['TRACER_SERVER_URL'])
+    value = load_deployment_config().get('server_url', default)
+    return validate_server_url(value) if value else ''
 
 
-def get_default_output_dir(default: str = DEFAULT_GENERIC_OUTPUT_DIR) -> str:
-    env_val = os.environ.get('TRACER_DELIVERY_OUTPUT_DIR')
-    if env_val and env_val.strip():
-        return env_val.strip()
-    cfg = load_deployment_config()
-    output_dir = cfg.get('delivery_output_dir')
-    if output_dir and isinstance(output_dir, str) and output_dir.strip():
-        return output_dir.strip()
-    return default
+def get_default_output_dir(default=DEFAULT_GENERIC_OUTPUT_DIR):
+    value = os.environ.get('TRACER_DELIVERY_OUTPUT_DIR')
+    if value is None:
+        value = load_deployment_config().get('delivery_output_dir', default)
+    if not isinstance(value, str) or not value or '\x00' in value or not Path(value).is_absolute():
+        raise ValueError('Diretório de entrega deve ser absoluto.')
+    return value
 
 
-def get_admin_ssh_host(default: str = 'traceradmin@192.0.2.10') -> str:
-    env_val = os.environ.get('TRACER_ADMIN_SSH_HOST')
-    if env_val and env_val.strip():
-        return env_val.strip()
-    cfg = load_deployment_config()
-    host = cfg.get('admin_ssh_host')
-    if host and isinstance(host, str) and host.strip():
-        return host.strip()
-    return default
+def _ssh_host(field, variable, default):
+    value = os.environ.get(variable)
+    if value is None:
+        value = load_deployment_config().get(field, default)
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+@[A-Za-z0-9.-]+', value or ''):
+        raise ValueError('Identidade SSH de implantação inválida.')
+    return value
 
 
-def get_backup_ssh_host(default: str = 'tracer-backup@192.0.2.20') -> str:
-    env_val = os.environ.get('TRACER_BACKUP_SSH_HOST')
-    if env_val and env_val.strip():
-        return env_val.strip()
-    cfg = load_deployment_config()
-    host = cfg.get('backup_ssh_host')
-    if host and isinstance(host, str) and host.strip():
-        return host.strip()
-    return default
+def get_admin_ssh_host(default='traceradmin@192.0.2.10'):
+    return _ssh_host('admin_ssh_host', 'TRACER_ADMIN_SSH_HOST', default)
+
+
+def get_backup_ssh_host(default='tracer-backup@192.0.2.20'):
+    return _ssh_host('backup_ssh_host', 'TRACER_BACKUP_SSH_HOST', default)

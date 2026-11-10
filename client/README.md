@@ -4,7 +4,7 @@ Entrada: `python -m client` / `client.__main__.main()`. Dados padrão: `%LOCALAP
 
 ## Fluxo final
 
-Escolher uma pasta, informar nome e colar exatamente o código `TT-` + 40 dígitos hexadecimais MAIÚSCULOS fornecido pelo responsável. Não se corrigem espaços/casing. A GUI usa o endpoint HTTPS seguro configurado (ex.: `https://tracer.example.com`), sem campo de servidor, CA, login ou senha administrativa.
+Escolher uma pasta, informar nome e colar exatamente o código `TT-` + 40 dígitos hexadecimais MAIÚSCULOS fornecido pelo responsável. Não se corrigem espaços/casing. A GUI usa o endpoint HTTPS do perfil empresarial mínimo; uma instalação genérica nova sem destino bloqueia ativação e informa o responsável, sem campo de servidor, CA, login ou senha administrativa.
 
 O usuário Windows pode salvar/trocar pasta, pausar/retomar, sair e optar pelo início no login, inclusive offline. Isso não concede permissões centrais. Fechar oculta na bandeja (fallback: minimiza); Sair encerra. Requisições e aquisição do lock rodam fora do loop Tk.
 

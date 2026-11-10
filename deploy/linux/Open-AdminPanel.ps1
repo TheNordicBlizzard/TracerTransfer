@@ -7,14 +7,16 @@ if ($VMHost -eq '192.0.2.10' -and (Test-Path (Join-Path $PSScriptRoot '..\..\dep
     } catch {}
 }
 if($LocalPort -lt 1024 -or $LocalPort -gt 65535){throw 'Invalid local port'}
-if(!$KeyPath){$KeyPath=Join-Path $HOME '.ssh\id_ed25519_tracer_vm'}
+$project=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$private=Join-Path (Split-Path $project -Parent) 'TracerTransfer-Private'
+if(!$KeyPath){$KeyPath=Join-Path $private 'ssh\id_ed25519_tracer_vm'}
 if(!$KnownHosts){$KnownHosts=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\tracer-vm.known_hosts'))}
 foreach($path in @($KeyPath,$KnownHosts)){if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw 'Administrative SSH identity/known_hosts missing'}}
 if($VMHost -notmatch '^[a-zA-Z0-9.-]+$'){throw 'Invalid VM host'}
 $ssh=(Get-Command ssh.exe -ErrorAction Stop).Source
 $listener=New-Object Net.Sockets.TcpListener ([Net.IPAddress]::Loopback),$LocalPort
 try{$listener.Start()}catch{throw 'Local port already in use; close the previous panel access first'}finally{$listener.Stop()}
-$diagnostics=Join-Path $env:LOCALAPPDATA 'TracerTransfer\admin-access'
+$diagnostics=Join-Path $private 'admin-access'
 New-Item -ItemType Directory -Path $diagnostics -Force|Out-Null
 $log=Join-Path $diagnostics ('ssh-'+[guid]::NewGuid().ToString('N')+'.log')
 $values=@('-N','-i',$KeyPath,'-o',('UserKnownHostsFile='+$KnownHosts),'-o','StrictHostKeyChecking=yes','-o','IdentitiesOnly=yes','-o','BatchMode=yes','-o','ExitOnForwardFailure=yes','-o','ConnectTimeout=8','-o','ServerAliveInterval=30','-o','ServerAliveCountMax=3','-L',("127.0.0.1:${LocalPort}:127.0.0.1:8765"),('traceradmin@'+$VMHost))

@@ -12,7 +12,11 @@ def main(argv=None):
     parser.add_argument('--headless', action='store_true')
     parser.add_argument('--background', action='store_true', help='Abre na bandeja, sem manter janela visível.')
     parser.add_argument('--once', action='store_true', help='Uma observação/envio; estabilidade ainda exige duas rodadas.')
+    parser.add_argument('--apply-update', metavar='REQUEST_DIR', help='Modo interno: aplica solicitação assinada e encerra.')
     args = parser.parse_args(argv)
+    if args.apply_update:
+        from updates.windows import client_update_main
+        return client_update_main(args.apply_update)
     with SingleInstance(args.data_dir):
         agent = Agent(args.data_dir)
         from updates.runtime import installed_client

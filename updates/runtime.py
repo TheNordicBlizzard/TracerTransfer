@@ -17,22 +17,21 @@ def installed_client(data_dir, *, once=False):
     try:
         install, data = client_paths()
         return (real_path(data_dir) == real_path(data)
-                and real_path(sys.executable) == real_path(install / 'TracerCliente.exe')
-                and real_path(install / 'TracerAtualizador.exe').is_file())
+                and real_path(sys.executable) == real_path(install / 'TracerCliente.exe'))
     except (OSError, ValueError, KeyError):
         return False
 
 
 def activated_profile(config):
-    from client.state import COMPANY_SERVER
-    return (config.activated and config.delivery_mode == 'queued'
-            and config.server_url == COMPANY_SERVER and config.ca_file is None)
+    from client.state import authorized_sender_profile
+    return authorized_sender_profile(config)
 
 
 class ClientUpdates:
     def __init__(self, agent):
         self.agent = agent
         self.pending = None
+        self.stopping = threading.Event()
         self.guard = threading.Lock()
         self.thread = threading.Thread(target=self._discover, name='update-discovery', daemon=True)
         self.cache = Path(agent.data_dir) / 'updates'
@@ -50,7 +49,7 @@ class ClientUpdates:
         from updates import VERSION
         from updates.core import prepare_update, UpdateUnavailable, UpdateRejected
         failures = 0
-        while not self.agent.stop_event.is_set():
+        while not self.agent.stop_event.is_set() and not self.stopping.is_set():
             delay = CHECK_SECONDS
             try:
                 config = read_config(self.agent.data_dir)
@@ -75,7 +74,7 @@ class ClientUpdates:
                 failures += 1
                 delay = min(CHECK_SECONDS, RETRY_SECONDS * 2 ** min(failures - 1, 5))
                 self._safe_record('failed')
-            self.agent.stop_event.wait(delay)
+            self.stopping.wait(delay)
 
     def _safe_record(self, state):
         try:
@@ -104,7 +103,9 @@ class ClientUpdates:
             self.agent.stop_event.set()
 
     def close(self):
-        self.thread.join(timeout=1)  # HTTP worker is daemon; never delay clean GUI exit.
+        self.stopping.set()
+        if self.thread.ident is not None:
+            self.thread.join()  # Finish HTTP work before closing agent state.
 
 
 def delivery_paths(data_dir=None):
@@ -124,7 +125,7 @@ def installed_delivery(data_dir, *, once=False):
         base, data = delivery_paths(data_dir)
         return (real_path(data_dir) == real_path(data)
                 and real_path(sys.executable) == real_path(base / 'bin' / 'TracerEntregador.exe')
-                and real_path(base / 'updater' / 'TracerAtualizador.exe').is_file())
+                and real_path(base / 'updater' / 'installed_version').is_file())
     except (OSError, ValueError, KeyError):
         return False
 
@@ -144,6 +145,7 @@ class DeliveryUpdates:
     def __init__(self, agent):
         self.agent = agent
         self.pending = None
+        self.stopping = threading.Event()
         self.guard = threading.Lock()
         self.thread = threading.Thread(target=self._discover, name='delivery-update-discovery', daemon=True)
         self.cache = Path(agent.data_dir) / 'updates'
@@ -157,21 +159,21 @@ class DeliveryUpdates:
         atomic_state(self.cache / 'status.json', {'state': state, **fields})
 
     def _current_version(self):
-        from updates import VERSION
+        from updates.core import version_tuple
         version_file = self.base_dir / 'updater' / 'installed_version'
         if version_file.is_file():
             try:
                 v = version_file.read_text(encoding='ascii').strip()
-                if v:
-                    return v
+                version_tuple(v)
+                return v
             except OSError:
                 pass
-        return VERSION
+        raise ValueError('Installed delivery version missing or unreadable')
 
     def _discover(self):
         from updates.core import prepare_update, UpdateUnavailable, UpdateRejected
         failures = 0
-        while not self.agent.stop_event.is_set():
+        while not self.agent.stop_event.is_set() and not self.stopping.is_set():
             delay = CHECK_SECONDS
             try:
                 if not activated_delivery_profile(self.agent.data_dir):
@@ -196,7 +198,7 @@ class DeliveryUpdates:
                 failures += 1
                 delay = min(CHECK_SECONDS, RETRY_SECONDS * 2 ** min(failures - 1, 5))
                 self._safe_record('failed')
-            self.agent.stop_event.wait(delay)
+            self.stopping.wait(delay)
 
     def _safe_record(self, state):
         try:
@@ -222,4 +224,6 @@ class DeliveryUpdates:
             self.agent.update_requested.set()
 
     def close(self):
-        self.thread.join(timeout=1)
+        self.stopping.set()
+        if self.thread.ident is not None:
+            self.thread.join()

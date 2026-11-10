@@ -48,16 +48,18 @@ def validate_recipe(text):
     }
     if not required.issubset(setup):
         raise ValueError('Missing per-user/preservation/signature directives')
-    expected_names = {'TracerCliente.exe', 'TracerAtualizador.exe'}
-    actual_names = set()
+    actual_names = []
     import re
     for entry in parsed['files']:
         match = re.search(r'DestName:\s*"([^"]+)"', entry)
         if not match or 'DestDir: "{app}"' not in entry:
-            raise ValueError('Only the public client and pinned updater may be bundled')
-        actual_names.add(match.group(1))
-    if len(parsed['files']) != 2 or actual_names != expected_names:
-        raise ValueError('Only the public client and pinned updater may be bundled')
+            raise ValueError('Only the public client and optional origin profile may be bundled')
+        name = match.group(1)
+        if name == 'deployment.json' and ('onlyifdoesntexist' not in entry or 'uninsneveruninstall' not in entry):
+            raise ValueError('Origin profile must survive upgrade and uninstall')
+        actual_names.append(name)
+    if actual_names not in (['TracerCliente.exe'], ['TracerCliente.exe', 'deployment.json']):
+        raise ValueError('Only the public client and optional origin profile may be bundled')
     if '[UninstallDelete]' in text or '[InstallDelete]' in text:
         raise ValueError('Data deletion sections are forbidden')
     if any('Flags: unchecked' not in task for task in parsed['tasks']):
@@ -74,6 +76,17 @@ def validate_recipe(text):
     if any('unchecked' not in entry or 'skipifsilent' not in entry for entry in parsed['run']):
         raise ValueError('Postinstall launch must require explicit consent')
     return parsed
+
+
+def validate_origin_profile(data):
+    from urllib.parse import urlsplit
+    profile = json.loads(data)
+    if set(profile) != {'server_url'} or not isinstance(profile['server_url'], str):
+        raise ValueError('Client profile must contain only server_url')
+    url = urlsplit(profile['server_url'])
+    if url.scheme != 'https' or not url.hostname or url.username or url.password or url.query or url.fragment or url.path not in ('', '/'):
+        raise ValueError('Client profile requires an HTTPS origin')
+    return profile
 
 
 def pe_machine(path):
@@ -107,7 +120,9 @@ def validate_manifest(manifest, root=ROOT):
         raise ValueError('Manifest schema/version mismatch')
     if record['channel'] != 'pilot-unsigned':
         raise ValueError('This pilot validator expects an explicitly unsigned artifact')
-    for kind in ('installer', 'client', 'updater', 'compiler'):
+    if 'updater' in record:
+        raise ValueError('Obsolete updater payload')
+    for kind in ('installer', 'client', 'compiler'):
         item = record[kind]
         target = Path(item['path'])
         if sha256(target) != item['sha256']:
@@ -116,10 +131,22 @@ def validate_manifest(manifest, root=ROOT):
             raise ValueError(f'{kind} size mismatch')
     if record['installer']['authenticode'] != 'NotSigned' or record['client']['authenticode'] != 'NotSigned':
         raise ValueError('Pilot must not claim a signature')
-    if record['updater']['authenticode'] != 'NotSigned':
-        raise ValueError('Pilot updater must not claim a signature')
+    if 'profile' in record:
+        profile = Path(record['profile']['path'])
+        validate_origin_profile(profile.read_bytes())
+        if sha256(profile) != record['profile']['sha256']:
+            raise ValueError('Profile SHA256 mismatch')
     if record['compiler']['authenticode'] != 'Valid':
         raise ValueError('Compiler provenance missing')
+    build = record.get('build', {})
+    if build.get('schema') != 1 or build.get('component') != 'client' or build.get('binary_sha256') != record['client']['sha256']:
+        raise ValueError('Compiled build receipt mismatch')
+    for name, expected in build.get('sources', {}).items():
+        target = (root / name).resolve()
+        if not target.is_relative_to(root.resolve()) or sha256(target) != expected:
+            raise ValueError('Compiled source hash mismatch')
+    if not build.get('sources'):
+        raise ValueError('Compiled source snapshot missing')
     if record['recipe_sha256'] != sha256(root / 'packaging/client.iss'):
         raise ValueError('Recipe changed after compilation')
     for gate in ('clean_windows_validated', 'gui_validated', 'broad_distribution_approved'):
@@ -175,13 +202,16 @@ def unpack_and_verify(record, unpacker, scratch):
         # Inno internal metadata includes uninstall resources and reconstructed recipe.
         public = [p for p in files if p.parts[len(Path(folder).parts)] != 'embedded'
                   and p.relative_to(folder).as_posix() != 'install_script.iss']
-        if {p.relative_to(folder).as_posix() for p in public} != {'{app}/TracerCliente.exe', '{app}/TracerAtualizador.exe'}:
+        expected = {'{app}/TracerCliente.exe'}
+        if 'profile' in record:
+            expected.add('{app}/deployment.json')
+        if {p.relative_to(folder).as_posix() for p in public} != expected:
             raise ValueError('Unexpected public payload: ' + repr([str(p) for p in public]))
-        updater_payloads = [p for p in public if p.name.casefold() == 'traceratualizador.exe']
-        if len(updater_payloads) != 1 or sha256(updater_payloads[0]) != record['updater']['sha256']:
-            raise ValueError('Extracted updater count/hash mismatch')
-        if pe_machine(updater_payloads[0]) != 0x8664:
-            raise ValueError('Updater must be AMD64')
+        if 'profile' in record:
+            profile = next(p for p in public if p.name == 'deployment.json')
+            validate_origin_profile(profile.read_bytes())
+            if sha256(profile) != record['profile']['sha256']:
+                raise ValueError('Extracted profile hash mismatch')
         recovered = sections((Path(folder) / 'install_script.iss').read_text(encoding='utf-8-sig'))
         for directive in ('PrivilegesRequired=lowest', f"AppVersion={record['version']}",
                           r'DefaultDirName={localappdata}\Programs\TracerTransfer\Client'):
@@ -192,7 +222,6 @@ def unpack_and_verify(record, unpacker, scratch):
         return {'package_integrity': 'PASS',
                 'compiled_setup_metadata': 'PASS',
                 'extracted_client_sha256': sha256(payloads[0]),
-                'extracted_updater_sha256': sha256(updater_payloads[0]),
                 'public_payloads': [p.relative_to(folder).as_posix() for p in public],
                 'unpacker_sha256': sha256(unpacker),
                 'embedded_modules_match_current_source': validate_embedded_client(payloads[0])}
@@ -207,7 +236,7 @@ def main(argv=None):
     if not args.innounp or not args.scratch:
         parser.error('--innounp and --scratch (or INNOUNP and TMPDIR) are required')
     version = tomllib.loads((ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
-    manifest = args.manifest or ROOT / f'dist/installers/TracerTransfer-Cliente-{version}-windows-x64-pilot-unsigned.json'
+    manifest = args.manifest or ROOT / f'dist/installers/{version}/TracerTransfer-Cliente-{version}-windows-x64-pilot-unsigned.json'
     validate_recipe((ROOT / 'packaging/client.iss').read_text(encoding='utf-8'))
     ps_result = powershell_parse(ROOT / 'scripts/build_installer.ps1')
     record = validate_manifest(manifest)

@@ -1,4 +1,19 @@
-# Protocolo de atualização pública — schema 1
+# Protocolo de atualização — contrato vigente schema 2
+
+**A seção histórica abaixo é da 0.1.2 e não deve ser usada para builds novos.**
+O contrato vigente está em `updates/PROTOCOL.md`, `updates/core.py` e
+`docs/RELEASE_AND_ROLLBACK.md`. São três feeds separados:
+`update-feed-client.json`, `update-feed-delivery.json` e `update-feed-server.json`.
+Cada envelope autoriza exatamente um componente e vincula tag/commit/versionamento.
+Não existe componente `updater`, manifesto agregado antigo ou fallback para branch.
+
+Assinatura atual: uma invocação por componente com `--commit <SHA_COMPLETO>` e
+`--key-file <DPAPI_FORA_DO_REPO>` obrigatórios; `--client`, `--delivery` ou `--server`.
+O caminho antigo de chave em home não é usado implicitamente. A CLI não sobrescreve
+saída, não compila nem publica. QA não é promovível a release; drafts/prereleases
+não alimentam atualização automática. Auditar antes de abrir o Git ou publicar assets.
+
+## Arquivo histórico schema 1 — não executar as receitas abaixo
 
 ## Escopo e identidade
 

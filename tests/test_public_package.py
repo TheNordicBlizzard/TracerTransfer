@@ -11,7 +11,7 @@ def setup_package(tmp_path):
     (tmp_path/'pyproject.toml').write_text('[project]\nversion="0.1.0"\n')
     (tmp_path/'packaging').mkdir()
     recipe=tmp_path/'packaging/client.iss';recipe.write_bytes(b'SYNTHETIC RECIPE FIXTURE')
-    folder=tmp_path/'dist/installers';folder.mkdir(parents=True)
+    folder=tmp_path/'dist/installers/0.1.0';folder.mkdir(parents=True)
     artifact=folder/'TracerTransfer-Cliente-0.1.0-windows-x64-pilot-unsigned.exe'
     artifact.write_bytes(b'SYNTHETIC PACKAGE FIXTURE - NEVER EXECUTE')
     record={'version':'0.1.0','channel':'pilot-unsigned','broad_distribution_approved':False,
@@ -39,6 +39,15 @@ def test_modified_installer_rejected_before_package_write(tmp_path):
     with pytest.raises(ValueError,match='differs'):
         package_client(tmp_path)
     assert not (tmp_path/'release').exists()
+
+
+def test_enterprise_installer_never_enters_public_zip(tmp_path):
+    artifact, record = setup_package(tmp_path)
+    record['profile'] = {'sha256': 'not-public'}
+    artifact.with_suffix('.json').write_text(json.dumps(record))
+    with pytest.raises(ValueError, match='private profile'):
+        package_client(tmp_path)
+    assert not (tmp_path / 'release').exists()
 
 
 def test_broad_release_flag_cannot_silently_override_pilot_channel(tmp_path):

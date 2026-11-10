@@ -4,6 +4,7 @@ import re
 import secrets
 import uuid
 import httpx
+from configuration import validate_server_url
 from client.auth import http_client
 from client.state import (COMPANY_SERVER, baseline_folder, read_config, save_config,
                           protect_token, unprotect_token)
@@ -31,6 +32,10 @@ class ActivationService:
         config = read_config(self.data_dir)
         if config.activated:
             raise ActivationError('Este cliente já está ativado.')
+        try:
+            validate_server_url(self.server_url)
+        except ValueError:
+            raise ActivationError('Servidor não configurado neste instalador. Solicite o pacote empresarial ao responsável.') from None
         if config.protected_token and not config.installation_id:
             raise ActivationError('Cadastro antigo encontrado. Solicite migração ao responsável.')
         if config.installation_id and (config.server_url != self.server_url or config.ca_file != self.ca_file):

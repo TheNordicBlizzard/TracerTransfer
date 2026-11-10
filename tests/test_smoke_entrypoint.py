@@ -11,7 +11,7 @@ def test_default_paths_are_current_queued_binaries(monkeypatch):
     assert smoke.main([])==0
     version=tomllib.loads((smoke.ROOT/'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
     assert seen['client_exe']==smoke.ROOT/'dist'/version/'TracerCliente.exe'
-    assert seen['delivery_exe']==smoke.ROOT/'dist/TracerEntregador.exe'
+    assert seen['delivery_exe']==smoke.ROOT/'dist'/version/'TracerEntregador.exe'
 
 
 def test_missing_explicit_binary_fails_before_any_process(tmp_path,monkeypatch):

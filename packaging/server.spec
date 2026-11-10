@@ -1,3 +1,4 @@
+# Legacy diagnostic Windows server only; excluded from all installers/distributions.
 from pathlib import Path
 ROOT = Path(SPECPATH).parent
 analysis = Analysis([str(ROOT / 'launch_server.py')], pathex=[str(ROOT)], binaries=[], datas=[], hiddenimports=['uvicorn.logging', 'uvicorn.loops.auto', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.http.h11_impl', 'uvicorn.protocols.websockets.auto', 'uvicorn.lifespan.on'], hookspath=[], hooksconfig={}, runtime_hooks=[], excludes=[], noarchive=False)

@@ -1,4 +1,24 @@
-# Atualização automática Windows — piloto 0.1.2
+# Atualização nativa Windows — candidato 0.1.3
+
+**As seções históricas da 0.1.2 abaixo não são instruções operacionais atuais.**
+Cliente e Entregador usam cópias temporárias do próprio EXE em modos internos;
+nenhum `TracerAtualizador.exe` é distribuído. Contrato: `updates/PROTOCOL.md`.
+Build: `scripts/build.ps1 -Version 0.1.3`, sem auxiliar; servidor Windows legado
+somente por opção explícita. Instalador exige recibo de build correspondente.
+
+Entregador continua LocalService. Tarefa SYSTEM protegida é opt-in administrativo;
+`Enable-AutoUpdate.ps1` recebe `-BaseDirectory`, `-ExpectedBinarySha256`,
+`-InstalledVersion`, `-ValidateOnly` e `-Enable`. Não existem mais `UpdaterPath`
+ou `ExpectedUpdaterSha256`. Tarefa ausente/ACL insegura bloqueia aplicação.
+Não executar habilitação em produção sem janela e homologação administrativas.
+
+Foi exercitado upgrade real do Cliente 0.1.3 para 0.1.4 QA-only, com Inno e
+autoaplicação por cópia congelada do Cliente: handshake, backup/hash e preservação
+de origem, configuração, DPAPI e fila. Instalação de teste removida. Isso não
+comprova rollback real de Inno, Windows limpo, login ou SCM/SYSTEM/LocalService.
+Gates e recuperação: `docs/RELEASE_AND_ROLLBACK.md`.
+
+## Arquivo histórico 0.1.2 — não executar as receitas abaixo
 
 ## Limites e confiança
 

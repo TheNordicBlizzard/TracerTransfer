@@ -29,7 +29,8 @@ def signed():
         serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
     metadata = {'name': 'TracerEntregador.exe', 'sha256': hashlib.sha256(BINARY).hexdigest(),
                 'size': len(BINARY), 'kind': 'exe-delivery'}
-    payload = {'schema': 1, 'repository': core.REPOSITORY, 'version': '0.1.2',
+    payload = {'schema': 2, 'repository': core.REPOSITORY, 'version': '0.1.2',
+               'component': 'delivery', 'tag': 'v0.1.2', 'commit': 'a' * 40,
                'channel': 'pilot', 'published_at': (NOW - timedelta(minutes=1)).isoformat(),
                'expires_at': (NOW + timedelta(days=1)).isoformat(),
                'artifacts': {'delivery': metadata}}
@@ -41,11 +42,12 @@ def signed():
 
 
 def release_for(signed):
-    assets = [{'name': 'update-manifest.json', 'size': len(signed.envelope()),
-               'browser_download_url': download_url('update-manifest.json')}]
+    feed = 'update-feed-' + signed.payload['component'] + '.json'
+    assets = [{'name': feed, 'size': len(signed.envelope()),
+               'browser_download_url': download_url(feed)}]
     assets.extend({'name': m['name'], 'size': m['size'], 'browser_download_url': download_url(m['name'])}
                   for m in signed.payload['artifacts'].values())
-    return {'tag_name': 'v0.1.2', 'prerelease': False, 'draft': False, 'assets': assets}
+    return {'tag_name': 'v0.1.2', 'target_commitish': 'a' * 40, 'prerelease': False, 'draft': False, 'assets': assets}
 
 
 def download_url(name):
@@ -64,7 +66,7 @@ def client_for(signed, *, release=None, manifest=None, binary=BINARY, intercept=
                 return result
         if str(request.url) == core.LATEST_URL:
             return httpx.Response(200, json=release_for(signed) if release is None else release)
-        if request.url.path.endswith('update-manifest.json'):
+        if request.url.path.endswith('.json'):
             return httpx.Response(200, content=signed.envelope() if manifest is None else manifest)
         return httpx.Response(200, content=binary)
     client = httpx.Client(transport=httpx.MockTransport(handler), trust_env=False)
@@ -80,7 +82,11 @@ def prepare(signed, tmp_path, **kwargs):
 
 
 def test_version_pin_and_canonical():
-    assert VERSION == '0.1.2'
+    assert VERSION == '0.1.3'
+    assert core.KINDS == {'client': 'inno-client', 'delivery': 'exe-delivery', 'server': 'tar-server'}
+    assert core.artifact_name('server', '0.1.3') == 'TracerServidor-0.1.3-linux.tar.gz'
+    with pytest.raises(core.UpdateRejected):
+        core.artifact_name('updater', '0.1.3')
     assert core.PINNED_PUBLIC_KEY == 'ahyjfdQIY100LuZktyPretfBo4FUEaUL4YYN8P1/pi0='
     assert core.canonical_payload({'z': 'é', 'a': 1}) == b'{"a":1,"z":"\xc3\xa9"}'
 
@@ -113,7 +119,7 @@ def test_untrusted_manifest(signed, change):
         public = base64.b64encode(b'1' * 32).decode()
     data = json.dumps(envelope).encode()
     if change == 'duplicate':
-        data = data.replace(b'"schema": 1', b'"schema": 1, "schema": 1')
+        data = data.replace(b'"schema": 2', b'"schema": 2, "schema": 2')
     elif change == 'oversize':
         data = b' ' * (core.MAX_MANIFEST_BYTES + 1)
     elif change == 'invalid-json':
@@ -128,6 +134,7 @@ def test_untrusted_manifest(signed, change):
     ('repository', 'attacker/repo'), ('channel', 'stable'), ('schema', True),
     ('version', '0.1.3rc1'), ('version', '00.1.3'), ('version', 'v0.1.3'),
     ('artifacts', {}), ('artifacts', {'unknown': {}}),
+    ('commit', 'main'), ('commit', 'A' * 40), ('tag', 'v9.9.9'), ('component', 'server'), ('component', []),
 ])
 def test_signed_invalid_payload(signed, field, value):
     payload = deepcopy(signed.payload)
@@ -170,7 +177,8 @@ def test_same_version_no_update_downgrade_rejected(signed, tmp_path, current):
 
 
 @pytest.mark.parametrize(('field', 'value'), [('draft', True), ('prerelease', True),
-                                            ('tag_name', 'v0.1.2-rc1'), ('tag_name', '0.1.2')])
+                                            ('tag_name', 'v0.1.2-rc1'), ('tag_name', '0.1.2'),
+                                            ('target_commitish', 'main'), ('target_commitish', 'b' * 40)])
 def test_release_rejections(signed, tmp_path, field, value):
     release = release_for(signed)
     release[field] = value
@@ -269,7 +277,7 @@ def test_stream_limits(signed, tmp_path, mode):
 
 def test_manifest_chunk_limit(signed, tmp_path):
     def intercept(req):
-        if req.url.path.endswith('update-manifest.json'):
+        if req.url.path.endswith('update-feed-delivery.json'):
             return httpx.Response(200, stream=Chunks([b' ' * 65536] * 3))
     with pytest.raises(core.UpdateRejected):
         prepare(signed, tmp_path, intercept=intercept)
@@ -295,12 +303,13 @@ def test_asset_and_tag_binding(signed, tmp_path, alter):
         prepare(signed, tmp_path, release=release, manifest=manifest)
 
 
-def test_optional_component_not_required(signed, tmp_path):
+def test_other_component_feed_is_rejected(signed, tmp_path):
     http, calls = client_for(signed)
     with http:
-        assert core.prepare_update('client', '0.1.1', tmp_path, http=http,
-                                   public_key=signed.public, now=NOW) is None
-    assert len(calls) == 2
+        with pytest.raises(core.UpdateUnavailable):
+            core.prepare_update('client', '0.1.1', tmp_path, http=http,
+                                public_key=signed.public, now=NOW)
+    assert len(calls) == 1
 
 
 def test_missing_manifest_unavailable(signed, tmp_path):
@@ -384,7 +393,7 @@ def test_cli_signs_only_requested_components(signed, tmp_path, monkeypatch, caps
     monkeypatch.setattr(signing, 'verify_manifest', lambda data, **kw: core.verify_manifest(
         data, public_key=signed.public, **kw))
     output = tmp_path / 'update-manifest.json'
-    assert signing.main(['--version', '0.1.2', '--delivery', str(artifact),
+    assert signing.main(['--version', '0.1.2', '--commit', 'a' * 40, '--delivery', str(artifact),
                          '--key-file', str(key_file), '--output', str(output), '--days-valid', '7']) == 0
     envelope = output.read_bytes()
     payload = core.verify_manifest(envelope, public_key=signed.public)
@@ -392,7 +401,7 @@ def test_cli_signs_only_requested_components(signed, tmp_path, monkeypatch, caps
     assert payload['artifacts']['delivery'] == signed.metadata
     assert base64.b64encode(private) not in envelope
     assert 'protected-marker' not in envelope.decode()
-    assert signing.main(['--version', '0.1.2', '--delivery', str(artifact),
+    assert signing.main(['--version', '0.1.2', '--commit', 'a' * 40, '--delivery', str(artifact),
                          '--key-file', str(key_file), '--output', str(output)]) == 1
     captured = capsys.readouterr()
     assert base64.b64encode(private).decode() not in captured.out + captured.err
@@ -404,7 +413,7 @@ def test_cli_does_not_echo_secret_errors(tmp_path, monkeypatch, capsys):
     def bad_key(_):
         raise ValueError('NEVER-ECHO-SECRET')
     monkeypatch.setattr(signing, 'unprotect_token', bad_key)
-    assert signing.main(['--version', '0.1.2', '--updater', str(tmp_path / 'absent.exe'),
+    assert signing.main(['--version', '0.1.2', '--commit', 'a' * 40, '--server', str(tmp_path / 'absent.exe'),
                          '--key-file', str(key), '--output', str(tmp_path / 'manifest.json')]) == 1
     captured = capsys.readouterr()
     assert 'NEVER-ECHO-SECRET' not in captured.out + captured.err
@@ -412,14 +421,17 @@ def test_cli_does_not_echo_secret_errors(tmp_path, monkeypatch, capsys):
 
 @pytest.mark.parametrize('args', [[], ['--days-valid', '0'], ['--days-valid', '366']])
 def test_cli_requires_artifacts_and_validity(tmp_path, args):
-    assert signing.main(['--version', '0.1.2', '--output', str(tmp_path / 'm.json'), *args]) == 1
+    assert signing.main(['--version', '0.1.2', '--commit', 'a' * 40,
+                         '--key-file', str(tmp_path / 'explicit-missing.dpapi'),
+                         '--output', str(tmp_path / 'm.json'), *args]) == 1
 
 
-@pytest.mark.parametrize('component', ['client', 'delivery', 'updater'])
+@pytest.mark.parametrize('component', ['client', 'delivery', 'server'])
 def test_each_component_can_be_only_signed_asset(signed, tmp_path, component):
     metadata = dict(signed.metadata, name=core.artifact_name(component, '0.1.2'),
                     kind=core.KINDS[component])
     signed.payload['artifacts'] = {component: metadata}
+    signed.payload['component'] = component
     http, calls = client_for(signed)
     with http:
         result = core.prepare_update(component, '0.1.1', tmp_path / 'cache', http=http,

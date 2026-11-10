@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.3] — Candidato em desenvolvimento/homologação
+
+### Correções e escopo
+- Reconciliar as cópias divergentes e consolidar fontes/configurações exclusivos em P, com snapshots privados e hashes antes da limpeza de C.
+- Carregamento estrito de implantação: ausência de destino impede ativação, perfil explícito inválido não escolhe fallback; atualizações preservam origem vinculada.
+- Eliminar o quarto produto de atualização; modos internos do Cliente/Entregador e comando nativo Linux, com privilégio separado, assinatura e recuperação sem rollback de dados.
+- Gerar pacotes por allowlist, sem perfil administrativo, credenciais ou payloads industriais; WinSW exige caminho/pin explícitos.
+- Auditoria de histórico/índice/pacotes e rastreabilidade commit–artefato antes de abertura pública do GitHub.
+
+### Limites de homologação
+- Integração local inicial: 467 testes aprovados, 20 skips e um warning de dependência; EXEs reais exercitados em HTTPS de laboratório com fila, idempotência e conflito sem sobrescrita.
+- Linux: 16 testes aprovados com UID 0 em árvore/venv isoladas; novas units verificadas com `systemd-analyze verify`. Isso não habilita o timer nem comprova bootstrap da instalação legada.
+- Migração: snapshots e hashes conferidos, ambiente virtual recriado no destino, chaves dedicadas validadas e origem de desenvolvimento removida; atalhos administrativos atualizados sem expor o painel.
+- Upgrade real do Cliente 0.1.3 para 0.1.4 QA-only aprovado com Inno real e cópia do próprio EXE: handshake, backup de binário, hash novo, origem, configuração, DPAPI e fila preservados. Instalação de laboratório removida; rollback de Inno e Windows limpo continuam gates separados.
+- Arquivo Linux QA determinístico validado contra descritor e hashes dos 19 membros; QA não é promovível a release.
+- Builds iniciais são QA locais de árvore modificada; artefatos finais precisam de commit limpo. A auditoria encontrou metadado real de laboratório no histórico e metadados de terceiros nos binários: abertura pública e publicação de assets bloqueadas até revisão específica, sem apagar/recriar o Git.
+- Aplicação do entregador sob SYSTEM/LocalService exige laboratório administrativo; token Windows atual não é elevado. Não é comprovação de implantação industrial.
+- Painel por DNS, redesign e MFA adiados. Authenticode continua adiado.
+- Recuperação e gates: `docs/RELEASE_AND_ROLLBACK.md`. Não reutilizar a versão 0.1.2 para bytes novos nem apagar o histórico.
+
+---
+
 Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
