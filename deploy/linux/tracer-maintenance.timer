@@ -1,0 +1,11 @@
+[Unit]
+Description=Check TracerTransfer health every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=15s
+Unit=tracer-maintenance.service
+
+[Install]
+WantedBy=timers.target

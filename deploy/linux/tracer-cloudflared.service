@@ -1,0 +1,33 @@
+[Unit]
+Description=TracerTransfer Cloudflare connector (enable only during controlled cutover)
+After=network-online.target tracer-proxy.service
+Wants=network-online.target
+Requires=tracer-proxy.service
+
+[Service]
+Type=simple
+User=tracer-cloudflared
+Group=tracer-cloudflared
+LoadCredentialEncrypted=tunnel-token:/etc/credstore.encrypted/tracer-tunnel-token
+UnsetEnvironment=TUNNEL_TOKEN TUNNEL_TOKEN_FILE
+ExecStart=/opt/tracer-transfer/tools/cloudflared --no-autoupdate tunnel --metrics 127.0.0.1:20241 run --token-file ${CREDENTIALS_DIRECTORY}/tunnel-token
+Restart=on-failure
+RestartSec=10
+UMask=0077
+StateDirectory=tracer-cloudflared
+Environment=HOME=/var/lib/tracer-cloudflared
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+MemoryMax=256M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

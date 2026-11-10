@@ -1,0 +1,80 @@
+{
+    admin off
+    auto_https off
+}
+
+(machine_backend) {
+    reverse_proxy 127.0.0.1:8765 {
+        # Conservative global activation limiting: no client-supplied peer trust.
+        header_up -X-Tracer-Client-IP
+        header_up -X-Forwarded-For
+        header_up -Forwarded
+        header_up -CF-Connecting-IP
+    }
+}
+
+http://:8766 {
+    bind 127.0.0.1
+    @health {
+        method GET
+        path /health
+    }
+    @activation {
+        method POST
+        path /api/activate
+    }
+    @heartbeat {
+        method POST
+        path /api/heartbeat
+    }
+    @upload {
+        method PUT
+        path_regexp upload "^/api/files/[A-Za-z0-9][A-Za-z0-9_. -]{0,119}$"
+    }
+    @status {
+        method GET
+        path_regexp status "^/api/files/status/[a-f0-9]{32}$"
+    }
+    @lease {
+        method POST
+        path /api/delivery/lease
+    }
+    @download {
+        method GET
+        path_regexp download "^/api/delivery/files/[a-f0-9]{32}$"
+    }
+    @ack {
+        method POST
+        path_regexp ack "^/api/delivery/ack/[a-f0-9]{32}$"
+    }
+    route {
+        request_body {
+            max_size 20971520
+        }
+        handle @health {
+            import machine_backend
+        }
+        handle @activation {
+            import machine_backend
+        }
+        handle @heartbeat {
+            import machine_backend
+        }
+        handle @upload {
+            import machine_backend
+        }
+        handle @status {
+            import machine_backend
+        }
+        handle @lease {
+            import machine_backend
+        }
+        handle @download {
+            import machine_backend
+        }
+        handle @ack {
+            import machine_backend
+        }
+        respond "Not found" 404
+    }
+}

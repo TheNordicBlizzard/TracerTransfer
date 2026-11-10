@@ -1,0 +1,31 @@
+[Unit]
+Description=TracerTransfer queued receiver and private administration
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=tracer
+Group=tracer
+WorkingDirectory=/opt/tracer-transfer
+ExecStart=/opt/tracer-transfer/venv/bin/python -m server --headless --delivery-mode queued --host 127.0.0.1 --port 8765 --data-dir /var/lib/tracer-transfer
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tracer-transfer
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryMax=1G
+TasksMax=128
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

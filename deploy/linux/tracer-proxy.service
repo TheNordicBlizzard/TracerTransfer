@@ -1,0 +1,31 @@
+[Unit]
+Description=TracerTransfer loopback-only machine API proxy
+After=network.target tracer-transfer.service
+Requires=tracer-transfer.service
+
+[Service]
+Type=simple
+User=tracer-proxy
+Group=tracer-proxy
+ExecStartPre=/opt/tracer-transfer/tools/caddy validate --config /etc/tracer-transfer/Caddyfile --adapter caddyfile
+ExecStart=/opt/tracer-transfer/tools/caddy run --config /etc/tracer-transfer/Caddyfile --adapter caddyfile
+Restart=on-failure
+RestartSec=5
+UMask=0077
+StateDirectory=tracer-proxy
+Environment=HOME=/var/lib/tracer-proxy
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=256M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

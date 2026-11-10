@@ -1,0 +1,20 @@
+[Unit]
+Description=TracerTransfer health, space and daily consistent backup
+After=tracer-transfer.service
+
+[Service]
+Type=oneshot
+User=tracer
+Group=tracer
+WorkingDirectory=/opt/tracer-transfer
+ExecStart=/opt/tracer-transfer/venv/bin/python -m server.maintenance scheduled --data-dir /var/lib/tracer-transfer --backup-dir /var/backups/tracer-transfer --keep 7
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tracer-transfer /var/backups/tracer-transfer
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+TimeoutStartSec=15min

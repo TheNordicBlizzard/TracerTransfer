@@ -1,0 +1,49 @@
+{
+    admin off
+    auto_https off
+}
+http://:8766 {
+    bind 127.0.0.1
+    @allowed {
+        method GET
+        path /health
+    }
+    @heartbeat {
+        method POST
+        path /api/heartbeat
+    }
+    @upload {
+        method PUT
+        path /api/files/*
+    }
+    route {
+        request_body {
+            max_size 20971520
+        }
+        handle @allowed {
+            reverse_proxy 127.0.0.1:8765 {
+                header_up -X-Tracer-Client-IP
+                header_up -X-Forwarded-For
+                header_up -Forwarded
+                header_up -CF-Connecting-IP
+            }
+        }
+        handle @heartbeat {
+            reverse_proxy 127.0.0.1:8765 {
+                header_up -X-Tracer-Client-IP
+                header_up -X-Forwarded-For
+                header_up -Forwarded
+                header_up -CF-Connecting-IP
+            }
+        }
+        handle @upload {
+            reverse_proxy 127.0.0.1:8765 {
+                header_up -X-Tracer-Client-IP
+                header_up -X-Forwarded-For
+                header_up -Forwarded
+                header_up -CF-Connecting-IP
+            }
+        }
+        respond "Not found" 404
+    }
+}

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily verified TracerTransfer off-VM backup
+
+[Timer]
+OnCalendar=*-*-* 03:40:00 UTC
+RandomizedDelaySec=20min
+Persistent=true
+Unit=tracer-backup-export.service
+
+[Install]
+WantedBy=timers.target

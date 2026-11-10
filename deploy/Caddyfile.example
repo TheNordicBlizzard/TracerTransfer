@@ -1,0 +1,13 @@
+# Substitua pelo subdominio REAL. DNS deve apontar para o IP publico do laboratorio.
+# Encaminhe TCP 80 e 443 para a maquina Caddy; nunca exponha 8765.
+tracer.example.com {
+    reverse_proxy 127.0.0.1:8765 {
+        # Sobrescreve entrada do usuario; backend confia somente neste proxy local.
+        header_up X-Tracer-Client-IP {remote_host}
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+    }
+}

@@ -1,0 +1,34 @@
+[Unit]
+Description=TracerTransfer verified off-VM checkpoint export (not offsite)
+After=network-online.target tracer-transfer.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tracer
+Group=tracer
+WorkingDirectory=/opt/tracer-transfer
+ExecStart=/opt/tracer-transfer/venv/bin/python /opt/tracer-transfer/deploy/linux/backup_export.py
+LoadCredential=backup_ssh_key:/etc/tracer-transfer/backup/id_ed25519
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tracer-transfer /var/backups/tracer-transfer-export
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+TimeoutStartSec=20min
+MemoryMax=512M
+CPUWeight=10
+IOWeight=10
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

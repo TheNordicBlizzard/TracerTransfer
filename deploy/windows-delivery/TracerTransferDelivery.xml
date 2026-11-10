@@ -1,0 +1,18 @@
+<service>
+  <id>TracerTransferDelivery</id>
+  <name>TracerTransfer Delivery</name>
+  <description>HTTPS pull delivery to FreeForm; private journal, no inbound listener.</description>
+  <executable>%BASE%\bin\TracerEntregador.exe</executable>
+  <arguments>--data-dir "%BASE%\data" --output-dir "C:\FreeForm\Tracer"</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <serviceaccount><domain>NT AUTHORITY</domain><user>LocalService</user></serviceaccount>
+  <stoptimeout>45 sec</stoptimeout>
+  <onfailure action="restart" delay="15 sec" />
+  <resetfailure>1 hour</resetfailure>
+  <logpath>%BASE%\logs</logpath>
+  <log mode="roll-by-size"><sizeThreshold>1024</sizeThreshold><keepFiles>3</keepFiles></log>
+  <env name="TEMP" value="%BASE%\tmp" />
+  <env name="TMP" value="%BASE%\tmp" />
+</service>

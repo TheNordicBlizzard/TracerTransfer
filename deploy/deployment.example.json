@@ -1,0 +1,6 @@
+{
+  "server_url": "https://tracer.example.com",
+  "delivery_output_dir": "C:/FreeForm/Tracer",
+  "admin_ssh_host": "traceradmin@192.0.2.10",
+  "backup_ssh_host": "tracer-backup@192.0.2.20"
+}
