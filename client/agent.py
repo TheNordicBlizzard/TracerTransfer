@@ -87,8 +87,6 @@ class Agent:
                     self.db.execute('DELETE FROM observations WHERE path=?', (path,))
                     continue
                 signature = file_signature(p)
-                if config.activation_baseline.get(path) == signature:
-                    continue
                 old = self.db.execute('SELECT signature,first,last,captured_signature FROM observations WHERE path=?', (path,)).fetchone()
                 if not old or old[0] != signature:
                     self.db.execute('INSERT OR REPLACE INTO observations(path,signature,first,last) VALUES (?,?,?,?)', (path, signature, now, now))
@@ -218,6 +216,28 @@ class Agent:
                     self.db.execute('UPDATE queue SET attempts=?,next_retry=?,error=? WHERE path=? AND sha=?',
                         (attempts + 1, self.clock() + delay, error, path, sha))
                     self.db.commit()
+            review_rows = self.db.execute(
+                "SELECT path,sha,name,snapshot,state,receipt_id FROM queue "
+                "WHERE state IN ('conflict','uncertain') AND receipt_id IS NOT NULL AND next_retry<=? "
+                "ORDER BY next_retry,rowid LIMIT 5",
+                (self.clock(),),
+            ).fetchall()
+            for path, sha, name, snapshot, state, receipt in review_rows:
+                if self.stop_event.is_set():
+                    break
+                try:
+                    r = client.get('/api/files/status/' + quote(receipt, safe=''),
+                                   headers={'Authorization': f'Bearer {token}'})
+                    if r.status_code == 200:
+                        result = r.json()
+                        if isinstance(result, dict) and result.get('receipt_id') == receipt and result.get('status') == 'delivered':
+                            self._accept_receipt(result, path, sha, name, snapshot)
+                            continue
+                except Exception:
+                    pass
+                self.db.execute('UPDATE queue SET next_retry=? WHERE path=? AND sha=?',
+                                (self.clock() + max(config.poll_seconds, 60), path, sha))
+                self.db.commit()
 
     def heartbeat(self):
         try:

@@ -88,10 +88,11 @@ def test_graphical_activation_pause_delivery_and_conflict(tmp_path,monkeypatch,t
                 assert ui.activation_card.winfo_manager()==''
                 assert read_config(data).server_url==COMPANY_SERVER
                 assert unprotect_token(read_config(data).protected_token) not in (data/'config.json').read_text()
-                assert http.get('/api/status',headers=headers).json()['deliveries']==[]
+                pump(ui.root,lambda:ui.metrics['awaiting_delivery'].get()=='1')
+                assert ui.metrics['sent'].get()=='0'
                 content=b'SYNTHETIC GUI FLOW - NO INDUSTRIAL DATA\r\n'
                 (source/'gui-flow.oma').write_bytes(content)
-                pump(ui.root,lambda:ui.metrics['awaiting_delivery'].get()=='1')
+                pump(ui.root,lambda:ui.metrics['awaiting_delivery'].get()=='2')
                 assert ui.metrics['sent'].get()=='0'
                 bridge.offline=True
                 ui.local_buttons[3].invoke()
@@ -103,13 +104,14 @@ def test_graphical_activation_pause_delivery_and_conflict(tmp_path,monkeypatch,t
                 activate(delivery_data,{'code':code('delivery'),'server_url':url,'ca_file':str(ca)})
                 delivery=DeliveryAgent(delivery_data,output)
                 delivery.run_once()
+                delivery.run_once()
                 assert (output/'gui-flow.oma').read_bytes()==content
                 assert hashlib.sha256((output/'gui-flow.oma').read_bytes()).hexdigest()==hashlib.sha256(content).hexdigest()
                 ui.local_buttons[3].invoke()
-                pump(ui.root,lambda:not read_config(data).paused and not ui.busy and ui.metrics['sent'].get()=='1')
+                pump(ui.root,lambda:not read_config(data).paused and not ui.busy and ui.metrics['sent'].get()=='2')
                 assert ui.metrics['awaiting_delivery'].get()=='0'
                 assert baseline.read_bytes()==b'SYNTHETIC PREEXISTING BACKLOG'
-                assert not (output/baseline.name).exists()
+                assert (output/baseline.name).read_bytes()==b'SYNTHETIC PREEXISTING BACKLOG'
                 (output/'conflict.vca').write_bytes(b'EXISTING SYNTHETIC DESTINATION')
                 (source/'conflict.vca').write_bytes(b'DIFFERENT SYNTHETIC CONTENT')
                 pump(ui.root,lambda:ui.metrics['awaiting_delivery'].get()=='1')

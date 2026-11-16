@@ -113,16 +113,19 @@ def test_pending_activation_never_sends_heartbeat_or_backlog(tmp_path):
     assert calls == ['/api/activate']
 
 
-def test_receipt_persists_restart_spool_until_delivered_and_backlog_ignored(tmp_path):
+def test_receipt_persists_restart_spool_until_delivered_including_preexisting_files(tmp_path):
     source = tmp_path / 'source'
     source.mkdir()
-    (source / 'old.oma').write_bytes(b'backlog')
+    old = source / 'old.oma'
+    old.write_bytes(b'preexisting bytes')
     save_config(tmp_path, Config(source_dir=str(source), stable_seconds=0, poll_seconds=0.1))
     ActivationService(tmp_path, transport=httpx.MockTransport(lambda r: httpx.Response(200,
         json={'device_id': 'd', 'activation_id': 'a', 'role': 'sender'}))).activate(CODE, 'Client')
-    new = source / 'new.vca'
-    new.write_bytes(b'queued bytes')
-    sha = hashlib.sha256(new.read_bytes()).hexdigest()
+    # Even if an old config had activation_baseline populated from 0.1.3, 0.1.4 must still send it
+    cfg = read_config(tmp_path)
+    cfg.activation_baseline = {str(old.resolve()): 'legacy'}
+    save_config(tmp_path, cfg)
+    sha = hashlib.sha256(old.read_bytes()).hexdigest()
     clock = [time.time()]
     calls = []
     delivered = [False]
@@ -130,13 +133,13 @@ def test_receipt_persists_restart_spool_until_delivered_and_backlog_ignored(tmp_
         calls.append((request.method, request.url.path))
         assert request.headers['authorization'] == 'Bearer ' + unprotect_token(read_config(tmp_path).protected_token)
         if request.method == 'PUT':
-            assert request.read() == b'queued bytes'
+            assert request.read() == b'preexisting bytes'
             return httpx.Response(202, json={'receipt_id': 'r-one', 'sha256': sha,
-                'name': 'new.vca', 'status': 'pending', 'duplicate': False})
+                'name': 'old.oma', 'status': 'pending', 'duplicate': False})
         if request.method == 'GET':
             assert request.url.path == '/api/files/status/r-one'
             return httpx.Response(200, json={'receipt_id': 'r-one', 'sha256': sha,
-                'name': 'new.vca', 'status': 'delivered' if delivered[0] else 'pending', 'error': None})
+                'name': 'old.oma', 'status': 'delivered' if delivered[0] else 'pending', 'error': None})
         return httpx.Response(200, json={'ok': True})
     a = Agent(tmp_path, transport=httpx.MockTransport(handle), clock=lambda: clock[0])
     a.run_once()
@@ -157,8 +160,7 @@ def test_receipt_persists_restart_spool_until_delivered_and_backlog_ignored(tmp_
         assert result.sent == 1 and result.pending == 0
         assert not Path(record[2]).exists()
         assert sum(method == 'PUT' for method, _ in calls) == 1
-        assert (source / 'old.oma').read_bytes() == b'backlog'
-        assert new.read_bytes() == b'queued bytes'
+        assert (source / 'old.oma').read_bytes() == b'preexisting bytes'
     finally:
         a.close()
 
@@ -383,7 +385,6 @@ def test_client_against_real_queued_backend_over_https(tmp_path):
         client_dir = tmp_path / 'sender'
         source = tmp_path / 'source'
         source.mkdir()
-        (source / 'backlog.oma').write_bytes(b'must not send')
         save_config(client_dir, Config(source_dir=str(source), poll_seconds=0.1, stable_seconds=0))
         with http_client(url, str(cert)) as http:
             response = http.post('/api/login', json={'username': 'testadmin', 'password': password})

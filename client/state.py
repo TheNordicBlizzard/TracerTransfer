@@ -40,9 +40,7 @@ def baseline_folder(folder):
     root = Path(folder)
     if not root.is_dir() or root.is_symlink() or root.is_junction():
         raise ValueError('Escolha uma pasta local existente, sem redirecionamento.')
-    return {str(p.resolve()): file_signature(p) for p in root.iterdir()
-            if p.suffix.lower() in ('.oma', '.vca') and not p.is_symlink()
-            and not p.is_junction() and p.is_file()}
+    return {}
 
 
 @dataclass

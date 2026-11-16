@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.4] - 2026-11-16 — Envio integral de arquivos pré-existentes na pasta monitorada
+
+### Alterado
+- `TracerCliente.exe` passa a enviar todos os arquivos `.oma` e `.vca` presentes na pasta monitorada, independentemente de o programa ter sido instalado ou ativado antes ou depois da criação dos arquivos.
+- Recibos em estado `conflict` ou `uncertain` são revalidados contra o servidor para concluir automaticamente a entrega quando o conflito for resolvido na ponta receptora.
+
 ## [0.1.3] — Candidato em desenvolvimento/homologação
 
 ### Correções e escopo

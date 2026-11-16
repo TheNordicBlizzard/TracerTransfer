@@ -138,8 +138,6 @@ def run(client_exe=None, delivery_exe=None):
             login = api('POST', '/api/login', json={'username': 'queued_test_admin', 'password': password})
             secret_values.append(login['token'])
             admin = {'Authorization': 'Bearer ' + login['token']}
-            backlog = paths['source'] / 'backlog.oma'
-            backlog.write_bytes(b'PRE-ACTIVATION BACKLOG - NEVER SEND\r\n')
             save_config(paths['client'], Config(source_dir=str(paths['source']), poll_seconds=0.1, stable_seconds=0))
 
             def code(role):
@@ -192,13 +190,6 @@ def run(client_exe=None, delivery_exe=None):
                         return
                     time.sleep(0.15)
                 raise IntegrationFailure(label)
-
-            phase = 'backlog'
-            client_once()
-            time.sleep(0.15)
-            client_once()
-            require(queue() == [] and receipts() == [], 'backlog_was_queued')
-            require(list((paths['client'] / 'spool').iterdir()) == [], 'backlog_snapshot_created')
 
             phase = 'queued_before_ack'
             payloads = {'new-order.oma': b'OMA queued integration\r\n' + secrets.token_bytes(512),
@@ -266,7 +257,6 @@ def run(client_exe=None, delivery_exe=None):
                          'Content-Type': 'application/octet-stream'})
             delivery_once()
             require(receipts() == conflict_receipts and not (paths['output'] / blocked_name).exists(), 'revoked_upload_accepted')
-            require(backlog.read_bytes() == b'PRE-ACTIVATION BACKLOG - NEVER SEND\r\n', 'backlog_original_changed')
             for name, payload in payloads.items():
                 require((paths['source'] / name).read_bytes() == payload, 'source_changed')
             phase = 'secret_audit'
