@@ -35,8 +35,8 @@ O sistema opera em modelo **Store-and-Forward** composto por 3 programas indepen
 
 ```
 [Loja / Óptica]                     [Servidor Central]                     [Laboratório]
-Tracer / Computador                  172.16.9.201 / Nuvem                  Computador Receptor
-       │                                     │                             (ex: 172.16.9.100)
+Tracer / Computador                  Servidor HTTPS / Nuvem                Computador Receptor
+       │                                     │                             (Rede Local / LAN)
        ▼                                     │                                     │
 [Pasta Monitorada]                           │                                     │
 (*.oma / *.vca)                              │                                     │
@@ -84,7 +84,7 @@ O **TracerCliente** é o aplicativo que roda nas máquinas das filiais/lojas ond
 #### Ativação Inicial da Loja (Passo Obrigatório)
 1. Solicite ao administrador do laboratório um **Código de Ativação** (gerado no painel web do servidor).
 2. Na tela do `TracerCliente`:
-   - Digite ou confirme a URL do servidor (ex: `https://tracer.goldmixlentes.com.br`).
+   - Digite ou confirme a URL do servidor (ex: `https://tracer.exemplo.com.br`).
    - Digite o **Código de Ativação** de uso único fornecido (formato: letras e números, válido por tempo limitado).
    - Clique em **Ativar Dispositivo**.
 3. O cliente autentica no servidor, gera um segredo criptográfico e armazena o token protegido via Windows DPAPI.
@@ -176,7 +176,7 @@ Caso deseje executar o servidor em máquina Windows:
    ```
 
 ### Acesso Administrativo e Painel Web
-1. Abra o navegador e acerte a URL interna ou externa configurada (ex: via túnel SSH `http://localhost:18765` ou `https://tracer.goldmixlentes.com.br`).
+1. Abra o navegador e acesse a URL interna ou externa configurada (ex: via túnel SSH `http://localhost:18765` ou `https://tracer.exemplo.com.br`).
 2. Faça login com o usuário administrador criado.
 3. No painel você pode:
    - Ver o status em tempo real de todas as lojas e do receptor do laboratório.
@@ -199,7 +199,7 @@ O **TracerEntregador** é o serviço responsável por receber os arquivos do ser
 ### Como Instalar o Entregador como Serviço Windows
 
 #### 1. Preparação dos Arquivos
-1. No computador receptor do laboratório (ex: `172.16.9.100`), baixe o pacote `TracerTransfer-Entregador-<versão>-Pacote.zip`.
+1. No computador receptor do laboratório, baixe o pacote `TracerTransfer-Entregador-<versão>-Pacote.zip`.
 2. Extraia o conteúdo em uma pasta temporária (ex: `C:\Temp\TracerEntrega`).
 
 #### 2. Geração do Token de Entrega no Servidor
@@ -215,7 +215,7 @@ Set-Location "C:\Temp\TracerEntrega\deploy\windows-delivery"
 .\Install-Delivery.ps1 `
     -BaseDirectory "C:\ProgramData\TracerTransfer-Delivery" `
     -OutputDirectory "C:\FreeForm\Tracer" `
-    -ServerUrl "https://tracer.goldmixlentes.com.br" `
+    -ServerUrl "https://tracer.exemplo.com.br" `
     -DeliveryToken "SEU_TOKEN_DE_ENTREGA_AQUI"
 ```
 
