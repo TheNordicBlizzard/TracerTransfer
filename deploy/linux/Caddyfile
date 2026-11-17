@@ -5,7 +5,7 @@
 
 (machine_backend) {
     reverse_proxy 127.0.0.1:8765 {
-        header_up -X-Tracer-Client-IP
+        header_up X-Tracer-Client-IP {header.CF-Connecting-IP}
         header_up -X-Forwarded-For
         header_up -Forwarded
         header_up -CF-Connecting-IP
