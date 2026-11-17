@@ -140,4 +140,3 @@ function logout(){
 $('refresh').onclick=refresh;$('logout').onclick=logout;
 setInterval(()=>{if(token)refresh()},15000);
 </script></html>'''
-
