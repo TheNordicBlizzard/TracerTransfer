@@ -5,7 +5,6 @@
 
 (machine_backend) {
     reverse_proxy 127.0.0.1:8765 {
-        # Conservative global activation limiting: no client-supplied peer trust.
         header_up -X-Tracer-Client-IP
         header_up -X-Forwarded-For
         header_up -Forwarded
@@ -15,6 +14,32 @@
 
 http://:8766 {
     bind 127.0.0.1
+
+    @dashboard {
+        method GET
+        path /
+    }
+    @login {
+        method POST
+        path /api/login
+    }
+    @logout {
+        method POST
+        path /api/logout
+    }
+    @panel_data {
+        method GET
+        path /api/me /api/status /api/devices /api/activations /api/users
+    }
+    @panel_mutate {
+        method POST
+        path /api/devices /api/activations /api/users
+    }
+    @panel_delete {
+        method DELETE
+        path_regexp panel_del "^/api/(devices|activations|users)/[A-Za-z0-9_.-]+$"
+    }
+
     @health {
         method GET
         path /health
@@ -47,9 +72,28 @@ http://:8766 {
         method POST
         path_regexp ack "^/api/delivery/ack/[a-f0-9]{32}$"
     }
+
     route {
         request_body {
             max_size 20971520
+        }
+        handle @dashboard {
+            import machine_backend
+        }
+        handle @login {
+            import machine_backend
+        }
+        handle @logout {
+            import machine_backend
+        }
+        handle @panel_data {
+            import machine_backend
+        }
+        handle @panel_mutate {
+            import machine_backend
+        }
+        handle @panel_delete {
+            import machine_backend
         }
         handle @health {
             import machine_backend
