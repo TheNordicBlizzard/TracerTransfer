@@ -25,8 +25,8 @@ $tool = Get-AuthenticodeSignature -LiteralPath $SignToolPath
 if ($tool.Status -ne 'Valid' -or $tool.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'signtool.exe sem assinatura Microsoft valida.' }
 foreach ($item in $Path) {
     $file = (Resolve-Path -LiteralPath $item).Path
-    & $SignToolPath sign /q /fd SHA256 /sha1 $Thumbprint /s My /tr $TimestampUrl /td SHA256 /d $Description $file
-    if ($LASTEXITCODE -ne 0) { throw "signtool falhou ($LASTEXITCODE) em $file" }
+    $signOutput = & $SignToolPath sign /q /fd SHA256 /sha1 $Thumbprint /s My /tr $TimestampUrl /td SHA256 /d $Description $file 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "signtool falhou ($LASTEXITCODE) em ${file}: $($signOutput | Out-String)" }
     $sig = Get-AuthenticodeSignature -LiteralPath $file
     if ($sig.SignerCertificate.Thumbprint -ne $Thumbprint) { throw "Assinante inesperado em $file" }
     if (-not $sig.TimeStamperCertificate) { throw "Assinatura sem carimbo de tempo em $file" }

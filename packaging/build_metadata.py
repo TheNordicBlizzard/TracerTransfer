@@ -16,9 +16,10 @@ def sign_executable(root, executable, thumbprint):
     if not re.fullmatch(r'[0-9A-F]{40}', thumbprint):
         raise ValueError('TRACER_SIGN_THUMBPRINT must be a 40-hex certificate thumbprint')
     script = Path(root) / 'scripts' / 'sign_windows.ps1'
-    result = subprocess.run(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
-                             "& $args[0] -Thumbprint $args[1] -Path $args[2] | ConvertTo-Json -Compress",
-                             str(script), thumbprint, str(Path(executable).resolve())],
+    quote = lambda value: "'" + str(value).replace("'", "''") + "'"
+    command = (f"& {quote(script)} -Thumbprint {thumbprint} -Path {quote(Path(executable).resolve())}"
+               " | ConvertTo-Json -Compress")
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
                             capture_output=True, text=True, errors='replace')
     if result.returncode:
         raise ValueError('Authenticode signing failed: ' + (result.stderr or result.stdout)[-800:])
