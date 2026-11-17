@@ -118,8 +118,8 @@ def validate_manifest(manifest, root=ROOT):
     version = tomllib.loads((root / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
     if record['schema'] != 1 or record['version'] != version:
         raise ValueError('Manifest schema/version mismatch')
-    if record['channel'] != 'pilot-unsigned':
-        raise ValueError('This pilot validator expects an explicitly unsigned artifact')
+    if record['channel'] not in ('pilot-unsigned', 'pilot-internal-signed'):
+        raise ValueError('This pilot validator expects an explicit pilot channel')
     if 'updater' in record:
         raise ValueError('Obsolete updater payload')
     for kind in ('installer', 'client', 'compiler'):
@@ -129,8 +129,15 @@ def validate_manifest(manifest, root=ROOT):
             raise ValueError(f'{kind} SHA256 mismatch')
         if 'size' in item and target.stat().st_size != item['size']:
             raise ValueError(f'{kind} size mismatch')
-    if record['installer']['authenticode'] != 'NotSigned' or record['client']['authenticode'] != 'NotSigned':
-        raise ValueError('Pilot must not claim a signature')
+    if record['channel'] == 'pilot-unsigned':
+        if record['installer']['authenticode'] != 'NotSigned' or record['client']['authenticode'] != 'NotSigned':
+            raise ValueError('Pilot must not claim a signature')
+    else:
+        thumb = record['installer'].get('signer_thumbprint')
+        if (record['installer']['authenticode'] != 'Valid' or record['client']['authenticode'] != 'Valid'
+                or not thumb or record['client'].get('signer_thumbprint') != thumb
+                or record.get('build', {}).get('authenticode', {}).get('thumbprint') != thumb):
+            raise ValueError('Internal-signed pilot requires one consistent Valid signer')
     if 'profile' in record:
         profile = Path(record['profile']['path'])
         validate_origin_profile(profile.read_bytes())

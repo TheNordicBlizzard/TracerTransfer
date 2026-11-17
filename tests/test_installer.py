@@ -125,6 +125,8 @@ def test_real_powershell_parser():
 @pytest.mark.parametrize('extra,expected', [
     ([], 'PilotUnsigned'),
     (['-PilotUnsigned', '-SignToolCommand', 'not-a-real-signer'], 'nunca ambos'),
+    (['-PilotUnsigned', '-InternalSignThumbprint', 'A' * 40], 'nunca ambos'),
+    (['-InternalSignThumbprint', 'xyz'], '40 hexadecimais'),
 ])
 def test_build_fails_closed_without_explicit_channel(extra, expected):
     result = subprocess.run(['powershell.exe', '-NoProfile', '-File', str(SCRIPT), *extra],

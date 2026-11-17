@@ -13,8 +13,11 @@ def package_client(root=ROOT, version=None, output=None):
     root = Path(root)
     version = version or tomllib.loads((root / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
     path = build_client_zip(root, version, output)
+    from zipfile import ZipFile
+    with ZipFile(path) as archive:
+        channel = json.loads(archive.read('SHA256.json'))['channel']
     return {'package': str(path), 'bytes': path.stat().st_size, 'entries': 3,
-            'sha256': calc_sha256(path), 'channel': 'pilot-unsigned'}
+            'sha256': calc_sha256(path), 'channel': channel}
 
 
 def main(argv=None):

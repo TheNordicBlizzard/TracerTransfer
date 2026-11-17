@@ -82,7 +82,7 @@ def prepare(signed, tmp_path, **kwargs):
 
 
 def test_version_pin_and_canonical():
-    assert VERSION == '0.1.4'
+    assert VERSION == '0.1.5'
     assert core.KINDS == {'client': 'inno-client', 'delivery': 'exe-delivery', 'server': 'tar-server'}
     assert core.artifact_name('server', '0.1.3') == 'TracerServidor-0.1.3-linux.tar.gz'
     with pytest.raises(core.UpdateRejected):

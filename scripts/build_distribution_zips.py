@@ -11,6 +11,9 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 WINSW_SHA256 = '923111c7142b3dc783a3c722b19b8a21bcb78222d7a136ac33f0ca8a29f4cb66'
 WINSW_VERSION = '2.12.0'
+# Canal -> estado Authenticode exigido. O nome de arquivo continua 'pilot-unsigned'
+# porque e o identificador do protocolo de atualizacao dos clientes instalados.
+CHANNELS = {'pilot-unsigned': 'NotSigned', 'pilot-internal-signed': 'Valid'}
 DELIVERY_FILES = ('TracerTransferDelivery.xml', 'Install-Delivery.ps1', 'Update-Delivery.ps1',
                   'Enable-AutoUpdate.ps1', 'Uninstall-Delivery.ps1', 'WinSW-LICENSE.txt', 'LEIA-ME.md')
 
@@ -30,28 +33,36 @@ def installer_payload(root, version):
     stem = f'TracerTransfer-Cliente-{validate_version(version)}-windows-x64-pilot-unsigned'
     installer = root / 'dist/installers' / version / (stem + '.exe')
     record = json.loads(installer.with_suffix('.json').read_text(encoding='utf-8'))
-    if record['version'] != version or record['channel'] != 'pilot-unsigned' or record['broad_distribution_approved'] is not False:
+    if record['version'] != version or record['channel'] not in CHANNELS or record['broad_distribution_approved'] is not False:
         raise ValueError('Pilot provenance mismatch')
     if installer.resolve() != Path(record['installer']['path']).resolve() or calc_sha256(installer) != record['installer']['sha256']:
         raise ValueError('Installer differs from verified build')
-    if record['installer']['authenticode'] != 'NotSigned':
-        raise ValueError('Use separately authorized signed-release workflow')
+    expected = CHANNELS[record['channel']]
+    if record['installer']['authenticode'] != expected:
+        raise ValueError('Authenticode state does not match the declared channel')
+    if expected == 'Valid':
+        signer = record['installer'].get('signer_thumbprint')
+        client = record.get('client', {})
+        if client.get('authenticode') != 'Valid' or not signer or client.get('signer_thumbprint') != signer:
+            raise ValueError('Signed channel requires one recorded signer thumbprint')
     if calc_sha256(root / 'packaging/client.iss') != record['recipe_sha256']:
         raise ValueError('Recipe changed since verified build')
     if 'profile' in record:
         raise ValueError('Installer contains a private profile; public distribution forbidden')
     if 'updater' in record:
         raise ValueError('Obsolete fourth executable in installer provenance')
-    return installer
+    return installer, record['channel']
 
 
-def write_package(output, version, component, payloads):
+def write_package(output, version, component, payloads, channel='pilot-unsigned'):
+    if channel not in CHANNELS:
+        raise ValueError('Unknown distribution channel')
     data = {}
     for name, path in payloads.items():
         if path.is_symlink() or not path.is_file():
             raise ValueError(f'Missing or linked payload: {name}')
         data[name] = path.read_bytes()
-    manifest = {'schema': 1, 'version': version, 'component': component, 'channel': 'pilot-unsigned',
+    manifest = {'schema': 1, 'version': version, 'component': component, 'channel': channel,
                 'broad_distribution_approved': False,
                 'files': {name: {'sha256': hashlib.sha256(value).hexdigest(), 'bytes': len(value)}
                           for name, value in data.items()}}
@@ -80,9 +91,9 @@ def write_package(output, version, component, payloads):
 
 def build_client_zip(root=ROOT, version='0.1.3', output=None):
     root = Path(root)
-    installer = installer_payload(root, version)
+    installer, channel = installer_payload(root, version)
     return write_package(output or root / 'release' / version, version, 'client', {
-        installer.name: installer, 'LEIA-ME.md': root / 'deploy/client-pilot/LEIA-ME.md'})
+        installer.name: installer, 'LEIA-ME.md': root / 'deploy/client-pilot/LEIA-ME.md'}, channel)
 
 
 def build_delivery_zip(root=ROOT, version='0.1.3', output=None, winsw=None):
@@ -96,7 +107,19 @@ def build_delivery_zip(root=ROOT, version='0.1.3', output=None, winsw=None):
     payloads = {'dist/TracerEntregador.exe': root / 'dist' / version / 'TracerEntregador.exe',
                 'deploy/windows-delivery/WinSW.NET4.exe': winsw}
     payloads.update({f'deploy/windows-delivery/{name}': root / 'deploy/windows-delivery' / name for name in DELIVERY_FILES})
-    return write_package(output or root / 'release' / version, version, 'delivery', payloads)
+    return write_package(output or root / 'release' / version, version, 'delivery', payloads,
+                         delivery_channel(payloads['dist/TracerEntregador.exe']))
+
+
+def delivery_channel(executable):
+    """Channel follows the build receipt, which binds the exact (possibly signed) bytes."""
+    receipt = Path(executable).with_suffix('.build.json')
+    if not receipt.is_file():
+        return 'pilot-unsigned'
+    record = json.loads(receipt.read_text(encoding='utf-8'))
+    if record.get('binary_sha256') != calc_sha256(executable):
+        raise ValueError('Delivery executable differs from its build receipt')
+    return 'pilot-internal-signed' if record.get('authenticode') else 'pilot-unsigned'
 
 
 def main(argv=None):

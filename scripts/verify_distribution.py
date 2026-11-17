@@ -86,7 +86,7 @@ def verify_zip(path, *, inspect_payloads=True, innounp=None, scratch=None, priva
         manifest = json.loads(archive.read('SHA256.json'), object_pairs_hook=unique_object)
         version = validate_version(manifest['version'])
         component = manifest['component']
-        if manifest.get('schema') != 1 or manifest.get('channel') != 'pilot-unsigned' or manifest.get('broad_distribution_approved') is not False:
+        if manifest.get('schema') != 1 or manifest.get('channel') not in ('pilot-unsigned', 'pilot-internal-signed') or manifest.get('broad_distribution_approved') is not False:
             raise ValueError('Unapproved manifest schema/channel')
         if component == 'client':
             expected = {f'TracerTransfer-Cliente-{version}-windows-x64-pilot-unsigned.exe', 'LEIA-ME.md'}

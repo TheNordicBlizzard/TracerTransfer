@@ -5,14 +5,21 @@ param(
     [string]$ClientExe,
     [string]$ClientProfile,
     [string]$OutputDirectory,
-    [string]$SignToolCommand
+    [string]$SignToolCommand,
+    [string]$InternalSignThumbprint
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-if ($PilotUnsigned -and $SignToolCommand) { throw 'Escolha piloto nao assinado OU assinatura, nunca ambos.' }
-if (-not $PilotUnsigned -and -not $SignToolCommand) {
+$modes = @($PilotUnsigned.IsPresent, [bool]$SignToolCommand, [bool]$InternalSignThumbprint) | Where-Object { $_ }
+if (@($modes).Count -gt 1) { throw 'Escolha piloto nao assinado OU assinatura, nunca ambos.' }
+if (-not @($modes).Count) {
     throw 'Sem assinatura configurada: use -PilotUnsigned explicitamente para um piloto NAO ASSINADO.'
+}
+$internal = [bool]$InternalSignThumbprint
+if ($internal) {
+    if ($InternalSignThumbprint -notmatch '^[0-9A-Fa-f]{40}$') { throw 'InternalSignThumbprint deve ter 40 hexadecimais.' }
+    $InternalSignThumbprint = $InternalSignThumbprint.ToUpperInvariant()
 }
 $versionMatch = [regex]::Match((Get-Content (Join-Path $root 'pyproject.toml') -Raw), '(?m)^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*$')
 if (-not $versionMatch.Success) { throw 'Versao numerica X.Y.Z nao encontrada em pyproject.toml.' }
@@ -58,9 +65,14 @@ foreach ($source in $buildReceipt.sources.PSObject.Properties) {
         throw 'Fonte diverge do recibo de compilacao; recompile packaging/client.spec.'
     }
 }
-$clientSignature = (Get-AuthenticodeSignature -LiteralPath $client.FullName).Status.ToString()
+$clientAuth = Get-AuthenticodeSignature -LiteralPath $client.FullName
+$clientSignature = $clientAuth.Status.ToString()
 if ($PilotUnsigned -and $clientSignature -ne 'NotSigned') { throw 'Piloto nao assinado exige payload NotSigned.' }
 if (-not $PilotUnsigned -and $clientSignature -ne 'Valid') { throw 'Build assinado exige cliente com Authenticode Valid.' }
+if ($internal -and $clientAuth.SignerCertificate.Thumbprint -ne $InternalSignThumbprint) { throw 'Cliente assinado por certificado inesperado.' }
+if ($internal -and (-not $buildReceipt.PSObject.Properties['authenticode'] -or $buildReceipt.authenticode.thumbprint -ne $InternalSignThumbprint)) {
+    throw 'Recibo de compilacao nao registra a assinatura interna esperada.'
+}
 if (-not $IsccPath) {
     $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
     if ($command) { $IsccPath = $command.Source }
@@ -81,7 +93,11 @@ if ($compilerSignature.Status -ne 'Valid') { throw 'ISCC exige assinatura Authen
 if ($compilerSignature.SignerCertificate.Subject -notmatch 'Pyrsys B\.V\.|Jordan Russell') { throw 'Publicador inesperado do ISCC.' }
 [void](New-Item -ItemType Directory -Force -Path $OutputDirectory)
 $output = (Resolve-Path -LiteralPath $OutputDirectory).Path
-$suffix = if ($PilotUnsigned) { 'pilot-unsigned' } else { 'signed' }
+# O nome do arquivo e identificador do protocolo de atualizacao (updates/core.py):
+# clientes ja instalados procuram exatamente "...-pilot-unsigned.exe". A assinatura
+# interna mantem esse nome; o canal real fica registrado no manifesto.
+$suffix = if ($PilotUnsigned -or $internal) { 'pilot-unsigned' } else { 'signed' }
+$channel = if ($internal) { 'pilot-internal-signed' } else { $suffix }
 $name = "TracerTransfer-Cliente-$version-windows-x64-$suffix"
 $artifact = Join-Path $output ($name + '.exe')
 $manifest = Join-Path $output ($name + '.json')
@@ -90,6 +106,10 @@ if (Test-Path -LiteralPath $manifest) { Remove-Item -LiteralPath $manifest }
 $argsIscc = @('/Qp', "/DAppVersion=$version", "/DClientExe=$($client.FullName)", "/DBuildOutput=$output", "/DArtifactName=$name")
 if ($profile) { $argsIscc += "/DClientProfile=$($profile.FullName)" }
 if ($PilotUnsigned) { $argsIscc += '/DPilotUnsigned=1' }
+elseif ($internal) {
+    $signer = Join-Path $root 'scripts\sign_windows.ps1'
+    $argsIscc += @('/DSignToolName=TracerSign', "/STracerSign=powershell.exe -NoProfile -ExecutionPolicy Bypass -File `$q$signer`$q -Thumbprint $InternalSignThumbprint -Path `$f")
+}
 else { $argsIscc += @('/DSignToolName=TracerSign', "/STracerSign=$SignToolCommand") }
 $argsIscc += (Join-Path $root 'packaging\client.iss')
 $clientHashBefore = (Get-FileHash -LiteralPath $client.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -99,13 +119,15 @@ if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) { throw 'ISCC nao pr
 $clientHashAfter = (Get-FileHash -LiteralPath $client.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($clientHashBefore -ne $clientHashAfter) { throw 'Payload mudou durante o build; artefato nao validado.' }
 if ($profile -and $profileHashBefore -ne (Get-FileHash -LiteralPath $profile.FullName -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Perfil mudou durante o build.' }
-$installerSignature = (Get-AuthenticodeSignature -LiteralPath $artifact).Status.ToString()
+$installerAuth = Get-AuthenticodeSignature -LiteralPath $artifact
+$installerSignature = $installerAuth.Status.ToString()
 if ($PilotUnsigned -and $installerSignature -ne 'NotSigned') { throw 'Artefato piloto deveria ser NotSigned.' }
 if (-not $PilotUnsigned -and $installerSignature -ne 'Valid') { throw 'Authenticode do instalador nao e Valid.' }
+if ($internal -and $installerAuth.SignerCertificate.Thumbprint -ne $InternalSignThumbprint) { throw 'Instalador assinado por certificado inesperado.' }
 $record = [ordered]@{
     schema = 1
     version = $version
-    channel = $suffix
+    channel = $channel
     built_at_utc = [DateTime]::UtcNow.ToString('o')
     installer = [ordered]@{ path = $artifact; sha256 = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant(); size = (Get-Item -LiteralPath $artifact).Length; authenticode = $installerSignature }
     client = [ordered]@{ path = $client.FullName; sha256 = $clientHashAfter; size = $client.Length; authenticode = $clientSignature }
@@ -116,6 +138,10 @@ $record = [ordered]@{
     broad_distribution_approved = $false
 }
 if ($profile) { $record['profile'] = [ordered]@{ path = $profile.FullName; sha256 = $profileHashBefore; size = $profile.Length } }
+if ($internal) {
+    $record.installer['signer_thumbprint'] = $InternalSignThumbprint
+    $record.client['signer_thumbprint'] = $InternalSignThumbprint
+}
 $record['build'] = $buildReceipt
 [IO.File]::WriteAllText($manifest, ($record | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
 Write-Output "Artefato: $artifact"

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.5] - 2026-11-17 — Executáveis com assinatura Authenticode interna
+
+### Adicionado
+- Canal `pilot-internal-signed`: `TracerCliente.exe`, `TracerEntregador.exe`, o instalador e o desinstalador do cliente são assinados com Authenticode (SHA-256 + carimbo de tempo RFC 3161) por um certificado interno da organização.
+- `scripts/build.ps1 -SignThumbprint` assina cada executável antes de gravar o recibo de compilação; o recibo registra o hash sem assinatura, o hash assinado e o thumbprint.
+- `scripts/build_installer.ps1 -InternalSignThumbprint` exige cliente e instalador `Valid` pelo mesmo certificado.
+- `deploy/windows-trust/`: script para confiar (ou remover a confiança) no certificado interno, recusando certificados de CA, com chave privada ou com usos além de Code Signing.
+
+### Compatibilidade
+- O nome do instalador continua `...-windows-x64-pilot-unsigned.exe`, porque é o identificador do protocolo de atualização usado pelos clientes já instalados. O canal real fica registrado nos manifestos.
+- A assinatura só é reconhecida como confiável nos computadores que instalaram o certificado interno.
+
 ## [0.1.4] - 2026-11-16 — Envio integral de arquivos pré-existentes na pasta monitorada
 
 ### Alterado

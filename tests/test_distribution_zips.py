@@ -221,3 +221,75 @@ def test_auditor_rules_are_generic_and_do_not_self_exclude():
     assert 'continue\n        full_path' not in source
     assert audit.inspect_bytes(source.encode()) == []
     assert audit.inspect_bytes(('10.' + '23.45.67').encode()) == ['private-ip']
+
+
+def _resign_fixture(root, **changes):
+    manifest = root / 'dist/installers/0.1.3/TracerTransfer-Cliente-0.1.3-windows-x64-pilot-unsigned.json'
+    record = json.loads(manifest.read_text())
+    record['channel'] = 'pilot-internal-signed'
+    record['installer'].update(authenticode='Valid', signer_thumbprint='A' * 40)
+    record['client'] = {'authenticode': 'Valid', 'signer_thumbprint': 'A' * 40}
+    for key, value in changes.items():
+        target, field = key.split('__')
+        record[target][field] = value
+    manifest.write_text(json.dumps(record))
+
+
+def test_internal_signed_channel_keeps_protocol_name_and_records_channel(tmp_path):
+    fixture_tree(tmp_path)
+    _resign_fixture(tmp_path)
+    path = build.build_client_zip(tmp_path, '0.1.3', tmp_path / 'release')
+    with zipfile.ZipFile(path) as archive:
+        assert 'TracerTransfer-Cliente-0.1.3-windows-x64-pilot-unsigned.exe' in archive.namelist()
+        assert json.loads(archive.read('SHA256.json'))['channel'] == 'pilot-internal-signed'
+    from scripts import verify_distribution as verify
+    assert verify.verify_zip(path, inspect_payloads=False)['component'] == 'client'
+
+
+@pytest.mark.parametrize('changes', [
+    {'installer__authenticode': 'NotSigned'},
+    {'client__authenticode': 'NotSigned'},
+    {'client__signer_thumbprint': 'B' * 40},
+    {'installer__signer_thumbprint': None},
+])
+def test_internal_signed_channel_fails_closed_on_inconsistent_signature(tmp_path, changes):
+    fixture_tree(tmp_path)
+    _resign_fixture(tmp_path, **changes)
+    with pytest.raises(ValueError):
+        build.build_client_zip(tmp_path, '0.1.3', tmp_path / 'release')
+    assert not (tmp_path / 'release').exists()
+
+
+def test_unsigned_channel_rejects_claimed_signature(tmp_path):
+    fixture_tree(tmp_path)
+    manifest = tmp_path / 'dist/installers/0.1.3/TracerTransfer-Cliente-0.1.3-windows-x64-pilot-unsigned.json'
+    record = json.loads(manifest.read_text()); record['installer']['authenticode'] = 'Valid'
+    manifest.write_text(json.dumps(record))
+    with pytest.raises(ValueError, match='Authenticode'):
+        build.build_client_zip(tmp_path, '0.1.3', tmp_path / 'release')
+
+
+def test_delivery_channel_follows_bound_build_receipt(tmp_path):
+    exe = tmp_path / 'TracerEntregador.exe'; exe.write_bytes(b'SIGNED INERT')
+    receipt = exe.with_suffix('.build.json')
+    assert build.delivery_channel(exe) == 'pilot-unsigned'
+    receipt.write_text(json.dumps({'binary_sha256': hashlib.sha256(b'SIGNED INERT').hexdigest(),
+                                   'authenticode': {'thumbprint': 'A' * 40}}))
+    assert build.delivery_channel(exe) == 'pilot-internal-signed'
+    exe.write_bytes(b'TAMPERED')
+    with pytest.raises(ValueError, match='differs'):
+        build.delivery_channel(exe)
+
+
+def test_build_evidence_rejects_malformed_sign_thumbprint(tmp_path, monkeypatch):
+    import runpy
+    module = runpy.run_path(str(Path(build.__file__).parents[1] / 'packaging/build_metadata.py'))
+    subprocess.run(['git', 'init', str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / 'launch_client.py').write_text('print(1)')
+    evidence = module['BuildEvidence'](tmp_path, 'client')
+    executable = tmp_path / 'TracerCliente.exe'; executable.write_bytes(b'INERT')
+    monkeypatch.setenv('TRACER_SIGN_THUMBPRINT', 'not-a-thumbprint')
+    with pytest.raises(ValueError, match='40-hex'):
+        evidence.finish(executable)
+    assert not executable.with_suffix('.build.json').exists()
+
