@@ -590,3 +590,32 @@ exit $code
         backups = list((base / 'bin').glob('*.previous.*'))
         assert len(backups) == 1 and backups[0].read_bytes() == b'original'
         assert calls == (['stop', 'start'] if mode == 'success' else ['stop', 'start', 'stop', 'start'])
+
+
+def _principal_snippet(source, variable):
+    lines = source.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith(f'$principalUser=${variable}.Principal.UserId'))
+    return '\n'.join(lines[start:start + 2])
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows account translation required')
+@pytest.mark.parametrize('source,variable', [
+    (lambda: Path(ROOT / 'updates' / 'windows.py').read_text(encoding='utf-8'), 'task'),
+    (lambda: Path(ROOT / 'deploy' / 'windows-delivery' / 'Enable-AutoUpdate.ps1').read_text(encoding='utf-8'), 'read'),
+])
+def test_task_principal_is_compared_by_sid_not_localized_name(source, variable, tmp_path):
+    """Regression: pt-BR Windows reports SYSTEM as 'SISTEMA'; names must never be compared."""
+    text = source()
+    assert "@('SYSTEM'" not in text
+    snippet = _principal_snippet(text, variable)
+    # Localized short name (SYSTEM, SISTEMA, ...), localized full name, and the raw SID.
+    script = tmp_path / 'principal.ps1'
+    script.write_text(
+        "$full=(New-Object Security.Principal.SecurityIdentifier('S-1-5-18')).Translate([Security.Principal.NTAccount]).Value\n"
+        "foreach($user in @($full.Split([char]92)[-1],$full,'S-1-5-18')){\n"
+        f"${variable}=[pscustomobject]@{{Principal=[pscustomobject]@{{UserId=$user}}}}\n"
+        f"{snippet}\nWrite-Output $principalSid}}\n", encoding='utf-8-sig')
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                             '-File', str(script)], capture_output=True, text=True, errors='replace')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ['S-1-5-18'] * 3, result.stdout + result.stderr

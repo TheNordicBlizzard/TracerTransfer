@@ -1,6 +1,6 @@
 ; Compile only through scripts/build_installer.ps1 (version and provenance gates).
 #ifndef AppVersion
-  #define AppVersion "0.1.5"
+  #define AppVersion "0.1.6"
 #endif
 #ifndef ClientExe
   #error ClientExe is required

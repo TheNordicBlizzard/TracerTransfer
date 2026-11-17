@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.6] - 2026-11-17 — Autoatualização do Entregador em Windows não inglês
+
+### Corrigido
+- O guarda do atualizador do Entregador comparava o usuário da tarefa agendada pelo nome (`SYSTEM`). Em Windows em português o nome é `SISTEMA`, e toda autoatualização era recusada. A comparação agora é feita pelo SID `S-1-5-18`, independente do idioma.
+- `Enable-AutoUpdate.ps1` passa a validar o SID do principal e o diretório de trabalho da tarefa na releitura, em vez de aceitar uma tarefa que o atualizador depois recusaria.
+
 ## [0.1.5] - 2026-11-17 — Executáveis com assinatura Authenticode interna
 
 ### Adicionado

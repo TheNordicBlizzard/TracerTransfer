@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Version = '0.1.5', [switch]$LegacyServer, [string]$SignThumbprint)
+param([string]$Version = '0.1.6', [switch]$LegacyServer, [string]$SignThumbprint)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Versao X.Y.Z obrigatoria.' }

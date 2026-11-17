@@ -95,5 +95,8 @@ $serviceSid=(New-Object Security.Principal.NTAccount('NT SERVICE',$id)).Translat
 $taskObject.SetSecurityDescriptor(('O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;'+$serviceSid+')'),0)
 if($taskObject.GetSecurityDescriptor(7) -notmatch [regex]::Escape($serviceSid)){throw 'Task DACL readback mismatch'}
 $read=Get-ScheduledTask -TaskName $taskName
-if($read.Principal.UserId -notin @('SYSTEM','S-1-5-18','NT AUTHORITY\SYSTEM') -or $read.Actions.Execute -ne $destination -or $read.Actions.Arguments -ne $action.Arguments -or $read.Triggers.Repetition.Interval -ne 'PT6H'){throw 'Scheduled task readback mismatch'}
+# Principal comparado por SID: o nome e localizado (SYSTEM/SISTEMA/...).
+$principalUser=$read.Principal.UserId
+$principalSid=if($principalUser -match '^S-1-'){$principalUser}else{(New-Object Security.Principal.NTAccount($principalUser)).Translate([Security.Principal.SecurityIdentifier]).Value}
+if($principalSid -ne 'S-1-5-18' -or $read.Actions.Execute -ne $destination -or $read.Actions.WorkingDirectory -ne $private -or $read.Actions.Arguments -ne $action.Arguments -or $read.Triggers.Repetition.Interval -ne 'PT6H'){throw 'Scheduled task readback mismatch'}
 Write-Output 'PASS: SYSTEM updater scheduled every 6h; LocalService stays unprivileged; first run in five minutes'

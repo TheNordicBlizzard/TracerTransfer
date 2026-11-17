@@ -1,3 +1,3 @@
 """Signed public-release update support (no GitHub credentials)."""
 
-VERSION = '0.1.5'
+VERSION = '0.1.6'

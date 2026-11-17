@@ -262,7 +262,10 @@ $id='TracerTransferDelivery'
 if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne 'S-1-5-18'){throw 'SYSTEM token required'}
 $task=Get-ScheduledTask -TaskName ($id+'-AutoUpdate') -TaskPath '\'
 $expectedArgs='--update --base-directory "'+$b+'"'
-if($task.Principal.UserId -notin @('SYSTEM','S-1-5-18','NT AUTHORITY\SYSTEM') -or $task.Principal.RunLevel -ne 'Highest' -or @($task.Actions).Count -ne 1 -or $task.Actions.Execute -ne "$b\bin\TracerEntregador.exe" -or $task.Actions.Arguments -cne $expectedArgs -or $task.Actions.WorkingDirectory -ne "$b\updater"){throw 'Unexpected update task'}
+# Principal comparado por SID: o nome e localizado (SYSTEM/SISTEMA/...).
+$principalUser=$task.Principal.UserId
+$principalSid=if($principalUser -match '^S-1-'){$principalUser}else{(New-Object Security.Principal.NTAccount($principalUser)).Translate([Security.Principal.SecurityIdentifier]).Value}
+if($principalSid -ne 'S-1-5-18' -or $task.Principal.RunLevel -ne 'Highest' -or @($task.Actions).Count -ne 1 -or $task.Actions.Execute -ne "$b\bin\TracerEntregador.exe" -or $task.Actions.Arguments -cne $expectedArgs -or $task.Actions.WorkingDirectory -ne "$b\updater"){throw 'Unexpected update task'}
 $scheduler=New-Object -ComObject Schedule.Service
 $scheduler.Connect()
 $taskSecurity=$scheduler.GetFolder('\').GetTask($id+'-AutoUpdate').GetSecurityDescriptor(7)
