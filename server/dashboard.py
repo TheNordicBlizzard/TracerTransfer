@@ -1,241 +1,192 @@
 """Self-contained panel: credentials stay in memory; data is rendered as text."""
-HTML = r"""
-<!doctype html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TracerTransfer · Painel Operacional</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #090d11;
-      --surface: #121820;
-      --surface-hover: #18222d;
-      --line: rgba(255, 255, 255, 0.08);
-      --ink: #f1f5f9;
-      --muted: #94a3b8;
-      --accent: #10b981;
-      --cyan: #38bdf8;
-      --warning: #f59e0b;
-      --danger: #f43f5e;
-      --radius: 10px;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font: 14px/1.5 system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--ink); min-height: 100vh; }
-    header { background: var(--surface); border-bottom: 1px solid var(--line); padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
-    .brand { display: flex; align-items: center; gap: 12px; }
-    .brand-icon { width: 36px; height: 36px; background: rgba(16,185,129,0.15); border: 1px solid var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--accent); font-weight: bold; font-size: 18px; }
-    .brand h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
-    .brand p { font-size: 12px; color: var(--muted); }
-    .badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-    .badge-success { background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
-    .badge-warning { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
-    .badge-danger { background: rgba(244,63,94,0.15); color: #fb7185; border: 1px solid rgba(244,63,94,0.3); }
-    main { max-width: 1400px; margin: 0 auto; padding: 24px; }
-    #login { max-width: 400px; margin: 80px auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 32px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
-    #login h2 { margin-bottom: 8px; font-size: 20px; font-weight: 600; }
-    #login p { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
-    #loginform { display: flex; flex-direction: column; gap: 16px; }
-    label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-    input, select, button { font: inherit; border-radius: 8px; min-height: 40px; padding: 8px 12px; border: 1px solid var(--line); outline: none; }
-    input, select { background: #090d11; color: var(--ink); }
-    input:focus, select:focus { border-color: var(--accent); }
-    button { background: var(--accent); color: #090d11; font-weight: 600; cursor: pointer; border: none; }
-    button:hover { filter: brightness(1.1); }
-    button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-    button.secondary:hover { background: var(--surface-hover); }
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 24px 0; }
-    .kpi-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; border-left: 4px solid var(--accent); }
-    .kpi-card.cyan { border-left-color: var(--cyan); }
-    .kpi-card.warning { border-left-color: var(--warning); }
-    .kpi-title { font-size: 11px; text-transform: uppercase; color: var(--muted); font-weight: 600; letter-spacing: 0.5px; }
-    .kpi-value { font-size: 26px; font-weight: 700; margin: 8px 0; }
-    .kpi-desc { font-size: 12px; color: var(--muted); }
-    .tab-bar { display: flex; gap: 8px; border-bottom: 1px solid var(--line); margin-bottom: 24px; overflow-x: auto; }
-    .tab-btn { background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 12px 16px; cursor: pointer; font-weight: 500; font-size: 14px; }
-    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
-    .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; margin-bottom: 24px; }
-    .card h2 { font-size: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); padding-bottom: 10px; font-weight: 600; }
-    .table-container { width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
-    th, td { padding: 12px 16px; border-bottom: 1px solid var(--line); }
-    th { background: #0c1117; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
-    tbody tr:hover { background: var(--surface-hover); }
-    .top-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
-    .user-pill { background: var(--surface); border: 1px solid var(--line); padding: 6px 14px; border-radius: 20px; font-size: 13px; }
-    form.inline-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) auto; gap: 12px; align-items: end; margin-bottom: 16px; }
-    #message:not(:empty) { padding: 12px 16px; border-radius: 8px; background: rgba(245,158,11,0.1); border: 1px solid var(--warning); color: var(--warning); margin-bottom: 16px; }
-  </style>
-</head>
-<body>
-  <header>
-    <div class="brand">
-      <div class="brand-icon">⚡</div>
-      <div><h1>TracerTransfer</h1><p>Painel Operacional · Sistema de Monitoramento</p></div>
-    </div>
-    <div style="font-size:12px; color:var(--accent); display:flex; align-items:center; gap:6px;">● Servidor Online</div>
-  </header>
-  <main>
-    <div id="message"></div>
-    <section id="login">
-      <h2>Entrar no Painel</h2>
-      <p>Acesse com suas credenciais de operador ou administrador.</p>
-      <form id="loginform">
-        <label>Usuário <input id="username" autocomplete="username" required autofocus></label>
-        <label>Senha <input id="password" type="password" autocomplete="current-password" required></label>
-        <button type="submit" id="loginbutton">Entrar no Sistema</button>
-      </form>
-    </section>
-    <div id="panel" style="display:none;">
-      <div class="top-bar">
-        <div class="user-pill">👤 <strong id="identity">...</strong> · <span id="syncstatus" style="color:var(--muted); font-size:12px;">Sincronizando...</span></div>
-        <div style="display:flex; gap:8px;"><button id="refresh" class="secondary">🔄 Atualizar</button><button id="logout" class="secondary">🚪 Sair</button></div>
-      </div>
-      <div class="kpi-grid">
-        <div class="kpi-card"><div class="kpi-title">Dispositivos Ativos</div><div class="kpi-value" id="kpi-devices">0</div><div class="kpi-desc" id="kpi-devices-desc">Terminais conectados</div></div>
-        <div class="kpi-card cyan"><div class="kpi-title">Fila de Entregas</div><div class="kpi-value" id="kpi-queue">0</div><div class="kpi-desc">FreeForm (172.16.9.100)</div></div>
-        <div class="kpi-card warning"><div class="kpi-title">Saúde do Spool</div><div class="kpi-value">100%</div><div class="kpi-desc">Persistência íntegra</div></div>
-        <div class="kpi-card"><div class="kpi-title">Auto Refresh</div><div class="kpi-value">15s</div><div class="kpi-desc">Tempo real ativo</div></div>
-      </div>
-      <div class="tab-bar">
-        <button class="tab-btn active" id="btn-tab-overview" onclick="switchTab('overview')">📊 Visão Geral</button>
-        <button class="tab-btn" id="btn-tab-devices" onclick="switchTab('devices')">🖥️ Dispositivos</button>
-        <button class="tab-btn" id="btn-tab-files" onclick="switchTab('files')">📁 Arquivos Recebidos</button>
-        <button class="tab-btn admin-only" id="btn-tab-deliveries" onclick="switchTab('deliveries')">📦 Fila e Entregas</button>
-        <button class="tab-btn admin-only" id="btn-tab-activations" onclick="switchTab('activations')">🔑 Códigos de Ativação</button>
-        <button class="tab-btn admin-only" id="btn-tab-users" onclick="switchTab('users')">👥 Usuários</button>
-      </div>
-      <div id="tab-overview" class="tab-content active"><div class="card"><h2>Resumo Operacional</h2><p id="statussummary">Carregando dados...</p><p id="maintenanceinfo" style="color:var(--muted); margin-top:8px; font-size:13px;"></p></div></div>
-      <div id="tab-devices" class="tab-content"><div class="card"><h2>Dispositivos Conectados</h2><div class="table-container" id="devices"></div></div></div>
-      <div id="tab-files" class="tab-content"><div class="card"><h2>Arquivos Recebidos</h2><div class="table-container" id="files"></div></div></div>
-      <div id="tab-deliveries" class="tab-content"><div class="card"><h2>Fila de Entrega (Laboratório)</h2><div class="table-container" id="deliveries"></div></div></div>
-      <div id="tab-activations" class="tab-content"><div class="card"><h2>Gerar Código de Ativação</h2><form id="deviceform" class="inline-form"><label>Nome da Filial <input id="devicename" required></label><label>Papel <select id="activationrole"><option value="sender">Remetente</option><option value="delivery">Entregador</option></select></label><label>Validade (Horas) <input id="activationhours" type="number" value="24" required></label><button type="submit">Gerar Código</button></form><div id="devicecredential" style="margin-bottom:16px;"></div><div class="table-container" id="activations"></div></div></div>
-      <div id="tab-users" class="tab-content"><div class="card"><h2>Usuários</h2><form id="userform" class="inline-form"><label>Usuário <input id="newuser" required></label><label>Senha <input id="newpassword" type="password" required minlength="12"></label><label>Perfil <select id="role"><option value="operator">Operador</option><option value="admin">Administrador</option></select></label><button type="submit">Criar Usuário</button></form><div class="table-container" id="users"></div></div></div>
-    </div>
-  </main>
-  <script>
-    'use strict';
-    let token='', isAdmin=false, sessionVersion=0, refreshTimer=null;
-    const $ = id => document.getElementById(id);
-    function message(m){ $('message').textContent = m || ''; }
-    function switchTab(name){
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-      const btn = $('btn-tab-' + name);
-      if(btn) btn.classList.add('active');
-      const content = $('tab-' + name);
-      if(content) content.classList.add('active');
-    }
-    function clearSession(){
-      token=''; isAdmin=false; sessionVersion++;
-      if(refreshTimer) clearInterval(refreshTimer);
-      $('panel').style.display='none'; $('login').style.display='block';
-    }
-    async function api(path, method='GET', body){
-      const ver = sessionVersion;
-      const r = await fetch(path, { method, headers: {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
-      if(ver !== sessionVersion) throw Error('Sessão encerrada');
-      if(r.status === 401){ clearSession(); throw Error('Sessão expirada. Entre novamente.'); }
-      const j = await r.json();
-      if(!r.ok) throw Error(j.detail || 'Erro na requisição');
-      return j;
-    }
-    function renderTable(id, headers, rows){
-      const tbl = document.createElement('table');
-      const thRow = document.createElement('tr');
-      headers.forEach(h => { const th = document.createElement('th'); th.textContent = h; thRow.appendChild(th); });
-      tbl.appendChild(document.createElement('thead')).appendChild(thRow);
-      const tb = tbl.appendChild(document.createElement('tbody'));
-      if(!rows.length){
-        const tr = document.createElement('tr'), td = document.createElement('td');
-        td.colSpan = headers.length; td.textContent = 'Nenhum registro.'; td.style.color = 'var(--muted)';
-        tr.appendChild(td); tb.appendChild(tr);
-      } else {
-        rows.forEach(r => {
-          const tr = document.createElement('tr');
-          r.forEach(v => { const td = document.createElement('td'); if(v instanceof Node) td.appendChild(v); else td.textContent = String(v ?? '—'); tr.appendChild(td); });
-          tb.appendChild(tr);
-        });
-      }
-      $(id).replaceChildren(tbl);
-    }
-    function badge(text, type='success'){ const s = document.createElement('span'); s.className = 'badge badge-' + type; s.textContent = text; return s; }
-    function formatTime(v){ if(!v) return '—'; const d = new Date(v); return isNaN(d) ? 'Data inválida' : d.toLocaleString('pt-BR'); }
-    async function refreshData(){
-      if(!token) return;
-      $('syncstatus').textContent = 'Sincronizando...';
-      try {
-        const status = await api('/api/status');
-        $('statussummary').textContent = status.summary || 'Sistema operacional normal.';
-        $('maintenanceinfo').textContent = 'Banco de Dados: ' + (status.database_ok ? 'Conectado' : 'Atenção') + ' · Modo de Manutenção: ' + (status.maintenance ? 'Ativo' : 'Inativo');
-        const devs = await api('/api/devices');
-        $('kpi-devices').textContent = devs.length;
-        const onlineCount = devs.filter(d => d.last_seen && (Date.now() - Date.parse(d.last_seen) <= 45000)).length;
-        $('kpi-devices-desc').textContent = onlineCount + ' terminais online agora';
-        renderTable('devices', ['Dispositivo', 'Identificador', 'Último Contato', 'Status', 'Ações'], devs.map(d => {
-          const isOnline = d.last_seen && (Date.now() - Date.parse(d.last_seen) <= 45000);
-          const b = !d.enabled ? badge('Revogado', 'danger') : isOnline ? badge('Online (≤45s)', 'success') : badge('Sem sinal', 'warning');
-          const btn = document.createElement('button'); btn.className = 'secondary'; btn.textContent = 'Revogar'; btn.style.minHeight = '30px';
-          btn.onclick = async () => { if(confirm('Revogar ' + d.name + '?')){ await api('/api/devices/' + d.id + '/revoke', 'POST'); refreshData(); } };
-          return [d.name, d.id, formatTime(d.last_seen), b, btn];
-        }));
-        const files = await api('/api/files');
-        renderTable('files', ['Arquivo', 'Dispositivo', 'Tamanho', 'Recebido em'], files.slice(0, 100).map(f => [
-          f.filename, f.device_name || 'Desconhecido', f.size ? (f.size/1024).toFixed(1) + ' KB' : '—', formatTime(f.received_at)
-        ]));
-        if(isAdmin){
-          const dels = await api('/api/deliveries');
-          $('kpi-queue').textContent = dels.filter(x => x.status === 'pending').length;
-          renderTable('deliveries', ['Arquivo', 'Situação', 'Destino', 'Data'], dels.slice(0, 100).map(dl => [
-            dl.filename, dl.status === 'delivered' ? badge('Entregue', 'success') : badge(dl.status, 'warning'), dl.destination || 'C:\\FreeForm\\Tracer', formatTime(dl.updated_at)
-          ]));
-          const acts = await api('/api/activations');
-          renderTable('activations', ['Nome / Filial', 'Papel', 'Criado em', 'Expira em', 'Status'], acts.map(a => [
-            a.device_name, a.role === 'sender' ? 'Remetente' : 'Entregador', formatTime(a.created_at), formatTime(a.expires_at), a.used ? badge('Utilizado', 'warning') : badge('Ativo', 'success')
-          ]));
-          const usrs = await api('/api/users');
-          renderTable('users', ['Usuário', 'Perfil', 'Situação'], usrs.map(u => [
-            u.username, u.role === 'admin' ? badge('Administrador', 'success') : badge('Operador', 'cyan'), u.enabled ? 'Habilitado' : 'Desabilitado'
-          ]));
-        }
-        $('syncstatus').textContent = 'Atualizado às ' + new Date().toLocaleTimeString('pt-BR');
-      } catch(err){ message(err.message); }
-    }
-    $('loginform').onsubmit = async (e) => {
-      e.preventDefault();
-      try {
-        const res = await api('/api/login', 'POST', { username: $('username').value, password: $('password').value });
-        token = res.token; isAdmin = res.role === 'admin';
-        $('identity').textContent = res.username + ' (' + (isAdmin ? 'Admin' : 'Operador') + ')';
-        $('login').style.display = 'none'; $('panel').style.display = 'block';
-        document.querySelectorAll('.admin-only').forEach(el => el.style.display = isAdmin ? 'inline-block' : 'none');
-        await refreshData();
-        if(refreshTimer) clearInterval(refreshTimer);
-        refreshTimer = setInterval(refreshData, 15000);
-      } catch(err){ message(err.message); }
-    };
-    $('refresh').onclick = refreshData;
-    $('logout').onclick = clearSession;
-    $('deviceform').onsubmit = async (e) => {
-      e.preventDefault();
-      try {
-        const res = await api('/api/activations', 'POST', { device_name: $('devicename').value, role: $('activationrole').value, valid_hours: parseInt($('activationhours').value, 10) });
-        $('devicecredential').innerHTML = '<div style="padding:12px; background:rgba(16,185,129,0.1); border:1px solid var(--accent); border-radius:8px; color:var(--accent);">Código: <code style="font-size:16px; user-select:all;">' + res.code + '</code></div>';
-        $('devicename').value = ''; refreshData();
-      } catch(err){ message(err.message); }
-    };
-    $('userform').onsubmit = async (e) => {
-      e.preventDefault();
-      try {
-        await api('/api/users', 'POST', { username: $('newuser').value, password: $('newpassword').value, role: $('role').value });
-        $('newuser').value = ''; $('newpassword').value = ''; message('Usuário criado com sucesso.'); refreshData();
-      } catch(err){ message(err.message); }
-    };
-  </script>
-</body>
-</html>
+HTML = r'''<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>TracerTransfer · Painel operacional</title>
+<style>
+:root{color-scheme:dark;--bg:#101416;--surface:#181e21;--line:#35413e;--ink:#edf2f1;--muted:#a5b5b0;--accent:#58d6aa;--warning:#f2cc8f}*{box-sizing:border-box}html{scroll-padding-top:24px}body{font:14px/1.5 "Segoe UI",system-ui,sans-serif;margin:0;background:var(--bg);color:var(--ink)}body>header,body>main{max-width:1440px;margin:auto;padding:20px 32px}body>header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);gap:16px}h1{font-size:21px;letter-spacing:-.5px;margin:0}h2{font-size:18px;margin:0 0 12px;font-weight:600}p{margin:8px 0 16px}small,.hint,label{color:var(--muted)}header .hint{margin:2px 0 0;font-size:12px}.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--accent)}section{min-width:0;scroll-margin-top:24px;margin:24px 0;padding:24px;background:var(--surface);border:1px solid var(--line);border-radius:6px}#login{max-width:440px;margin:56px auto}label{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:500;min-width:0}input,select,button{font:inherit;border-radius:4px;min-height:40px;max-width:100%;padding:8px 12px;border:1px solid var(--line)}input,select{background:var(--bg);color:var(--ink);width:100%}button{cursor:pointer;background:var(--accent);color:#101416;font-weight:600;border-color:var(--accent)}button:hover{filter:brightness(1.08)}button:disabled{cursor:wait;opacity:.65}button.secondary,td button{background:transparent;color:var(--ink);border-color:#53645e}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,.scroll:focus-visible{outline:2px solid var(--accent);outline-offset:3px}form{display:flex;align-items:end;flex-wrap:wrap;gap:12px;margin:16px 0 24px}form label{flex:1 1 180px}#loginform{display:grid;gap:16px;margin-bottom:0}#loginform button{width:100%}.toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.actions{display:flex;gap:8px;flex-wrap:wrap}.navigation{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding:8px 0 16px;margin-top:8px}.navigation a{color:var(--muted);text-decoration:none;padding:8px 12px;border-radius:4px}.navigation a:hover,.navigation a:focus-visible{color:var(--ink);background:var(--surface)}.scroll{width:100%;max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}table{width:100%;border-collapse:collapse;font-size:13px;min-width:660px}th,td{text-align:left;padding:12px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere;max-width:340px}th{color:var(--muted);font-weight:600;background:#141a1c;white-space:nowrap}tbody tr:hover{background:#1d2527}td input{width:180px}td select{width:130px}td button{margin-top:8px;white-space:nowrap}td small{font-size:11px}td:last-child{min-width:100px}.stale{color:var(--warning)}code{overflow-wrap:anywhere;font-family:Consolas,monospace}#message{color:var(--warning);overflow-wrap:anywhere;margin:0}#message:not(:empty){padding:12px 16px;margin:16px 0;border:1px solid #796344;border-radius:4px;background:#28251e}#syncstatus{color:var(--muted);font-size:12px}#statussummary{font-size:15px;font-variant-numeric:tabular-nums;padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}#maintenanceinfo{line-height:1.9;margin-bottom:0}#devicecredential:not(:empty){padding:16px;border:1px solid var(--accent);border-radius:4px;overflow-wrap:anywhere;font-family:Consolas,monospace;user-select:all;color:var(--accent)}.skip{position:absolute;left:16px;top:-100px;color:var(--bg);background:var(--accent);padding:8px;z-index:5}.skip:focus{top:8px}[hidden]{display:none!important}@media(max-width:720px){body>header,body>main{padding:16px}body>header{align-items:start}section{padding:16px;margin:16px 0}form{display:grid;grid-template-columns:minmax(0,1fr)}form button{width:100%}input,select,button,.navigation a{min-height:44px}.navigation{gap:0}.navigation a{padding:10px}h1{font-size:19px}#login{margin:24px auto}.toolbar{align-items:start}.scroll{border:1px solid var(--line)}th,td{padding:10px}#syncstatus{flex-basis:100%}}
+.status-badge{display:inline-flex;padding:3px 8px;border:1px solid currentColor;border-radius:4px;white-space:nowrap;font-size:12px}.status-pending,.status-conflict,.status-uncertain{color:var(--warning)}.status-delivered{color:var(--accent)}#deliverysummary{color:var(--muted)}
 
-"""
+body>header{max-width:none;padding:14px 32px;background:#141a1c;position:sticky;top:0;z-index:4}
+body>header>div,body>main{max-width:1440px}
+.brand{display:flex;align-items:center;gap:12px}.logo{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;font-weight:700;color:#101416;background:linear-gradient(135deg,#58d6aa,#3aa7c9)}
+.live{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}.live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px rgba(88,214,170,.15)}
+.toolbar{padding:4px 0 0;justify-content:flex-start}.toolbar .actions{order:3;margin-left:auto}#syncstatus{padding-left:12px;border-left:1px solid var(--line)}#identity{font-weight:600}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:20px 0}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px 20px;border-top:3px solid var(--accent);min-width:0}
+.kpi.warn{border-top-color:var(--warning)}.kpi.bad{border-top-color:#e5737a}.kpi.info{border-top-color:#3aa7c9}
+.kpi-label{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);font-weight:600}
+.kpi-value{font-size:30px;font-weight:700;line-height:1.2;margin:6px 0 2px;font-variant-numeric:tabular-nums}
+.kpi-detail{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.navigation{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:8px 0 0;overflow-x:auto}
+.navigation a{border-radius:0;padding:12px 16px;border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
+.navigation a:hover{background:transparent}.navigation a[aria-current="page"]{color:var(--accent);border-bottom-color:var(--accent)}
+#adminnav{display:contents}#adminnav[hidden]{display:none!important}
+#panel section{margin-top:20px;border-radius:8px}
+@media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.kpi-grid{grid-template-columns:minmax(0,1fr)}.kpi-value{font-size:24px}}
+</style>
+<a class="skip" href="#content">Ir para o conteúdo</a><header><div class="brand"><span class="logo" aria-hidden="true">TT</span><div><h1>TracerTransfer</h1><p class="hint">Central de gerenciamento · transferências e entregas</p></div></div><span class="live">Servidor operacional</span></header><main id="content">
+<p id="message" role="status" aria-live="polite"></p>
+<section id="login" aria-labelledby="logintitle"><h2 id="logintitle">Entrar no painel</h2><p class="hint">Use sua conta de operador ou administrador.</p><form id="loginform"><label for="username">Usuário<input id="username" autocomplete="username" required></label><label for="password">Senha<input id="password" type="password" autocomplete="current-password" required></label><button id="loginbutton">Entrar</button></form></section>
+<div id="panel" hidden><div class="toolbar"><span id="identity"></span><div class="actions"><button id="refresh" class="secondary">Atualizar agora</button><button id="logout" class="secondary">Sair e limpar painel</button></div><span id="syncstatus" role="status" aria-live="polite">Aguardando atualização.</span></div>
+<div class="kpi-grid" role="group" aria-label="Indicadores"><div class="kpi" id="kpionlinecard"><div class="kpi-label">Dispositivos com contato recente</div><div class="kpi-value" id="kpionline">—</div><div class="kpi-detail" id="kpionlinedetail">Aguardando dados</div></div><div class="kpi info"><div class="kpi-label">Recebimentos listados (24 h)</div><div class="kpi-value" id="kpifiles">—</div><div class="kpi-detail" id="kpifilesdetail">Aguardando dados</div></div><div class="kpi warn" id="kpiqueuecard"><div class="kpi-label">Fila de entrega</div><div class="kpi-value" id="kpiqueue">—</div><div class="kpi-detail" id="kpiqueuedetail">Aguardando dados</div></div><div class="kpi" id="kpihealthcard"><div class="kpi-label">Saúde do servidor</div><div class="kpi-value" id="kpihealth">—</div><div class="kpi-detail" id="kpihealthdetail">Aguardando dados</div></div></div>
+<nav class="navigation" aria-label="Seções do painel"><a id="taboverview" href="#overview" aria-current="page">Visão geral</a><a id="tabdevicessection" href="#devicessection">Dispositivos</a><a id="fileslink" href="#filessection">Arquivos recebidos</a><span id="adminnav" hidden><a id="tabdeliverysection" href="#deliverysection">Fila e entregas</a><a id="tabactivationsection" href="#activationsection">Ativações</a><a id="tabuserssection" href="#userssection">Usuários</a></span></nav>
+<section id="overview" aria-labelledby="overviewtitle"><h2 id="overviewtitle">Resumo operacional</h2><p id="statussummary" role="status">Aguardando dados do servidor.</p><p id="maintenanceinfo">Ainda sem verificação de manutenção.</p></section>
+<section id="devicessection" aria-labelledby="devicestitle"><h2 id="devicestitle">Dispositivos</h2><p class="hint">Contato recente não comprova conexão ativa. Sem heartbeat há mais de 45 s: desatualizado, não necessariamente desconectado.</p><div class="scroll" id="devices" tabindex="0" role="region" aria-label="Tabela de dispositivos"></div></section>
+<section id="filessection" aria-labelledby="filestitle"><h2 id="filestitle">Arquivos recebidos</h2><p class="hint" id="fileshint">Últimos 1.000 registros, do mais recente ao mais antigo. Em telas pequenas, deslize a tabela para consultar todas as colunas.</p><div class="scroll" id="files" tabindex="0" role="region" aria-label="Tabela de arquivos recebidos"></div></section>
+<div id="admin" hidden><section id="userssection" aria-labelledby="userstitle"><h2 id="userstitle">Usuários e perfis</h2><p class="hint">Admin gerencia o servidor; operador consulta dispositivos e arquivos. Alterações revogam as sessões do usuário.</p><form id="userform"><label for="newuser">Novo usuário<input id="newuser" autocomplete="off" required></label><label for="newpassword">Senha · mínimo de 12 caracteres<input id="newpassword" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></label><label for="role">Perfil<select id="role"><option value="operator">Operador</option><option value="admin">Admin</option></select></label><button id="userbutton">Criar usuário</button></form><div class="scroll" id="users" tabindex="0" role="region" aria-label="Tabela de usuários"></div></section>
+<section id="activationsection" aria-labelledby="activationtitle"><h2 id="activationtitle">Códigos de ativação</h2><form id="deviceform"><label for="devicename">Nome do dispositivo<input id="devicename" required maxlength="120"></label><label for="activationrole">Papel do dispositivo<select id="activationrole"><option value="sender">Remetente</option><option value="delivery">Entregador</option></select></label><label for="activationhours">Validade em horas<input id="activationhours" type="number" min="1" max="720" value="24" required></label><button id="devicebutton">Gerar código</button></form><p class="hint">Copie o código agora: exibição única. Nenhuma senha administrativa deve ser usada no cliente. Sair limpa o código.</p><p id="devicecredential" role="status" aria-live="polite"></p><div class="scroll" id="activations" tabindex="0" role="region" aria-label="Tabela de códigos de ativação"></div></section>
+<section id="deliverysection" aria-labelledby="deliverytitle"><h2 id="deliverytitle">Fila e entregas</h2><p class="hint">Recebido na fila NÃO significa entregue ao FreeForm. Conflitos e estados incertos não são repetidos automaticamente. Últimos 1.000 recibos.</p><p id="deliverysummary" role="status"></p><div class="scroll" id="deliveries" tabindex="0" role="region" aria-label="Tabela de entregas"></div></section></div></div></main>
+<script>
+'use strict';
+let token='',isAdmin=false,sessionVersion=0,refreshSequence=0,usersSnapshot='',refreshError='';
+const $=id=>document.getElementById(id);
+function message(e){if(!e.stale)$('message').textContent=e.message||String(e)}
+
+const TABS=[['overview','taboverview'],['devicessection','tabdevicessection'],['filessection','fileslink'],['deliverysection','tabdeliverysection'],['activationsection','tabactivationsection'],['userssection','tabuserssection']];
+const ADMIN_TABS=['deliverysection','activationsection','userssection'];
+let currentTab='overview';
+function showTab(name){
+ if(!isAdmin && ADMIN_TABS.includes(name))name='overview';
+ currentTab=name;
+ for(const [section,tab] of TABS){$(section).hidden=section!==name;if(section===name)$(tab).setAttribute('aria-current','page');else $(tab).removeAttribute&&$(tab).removeAttribute('aria-current')}
+}
+for(const [section,tab] of TABS)$(tab).onclick=e=>{if(e&&e.preventDefault)e.preventDefault();showTab(section)};
+function kpi(id,value,detail,tone){$(id).textContent=String(value);$(id+'detail').textContent=detail;if(tone!==undefined && $(id+'card'))$(id+'card').className='kpi'+(tone?' '+tone:'')}
+function resetKpis(){for(const id of ['kpionline','kpifiles','kpiqueue','kpihealth'])kpi(id,'—','Aguardando dados')}
+function renderKpis(data){
+ const devices=(data.devices||[]).filter(d=>d.enabled),files=data.files||[],m=data.maintenance||{};
+ const recent=devices.filter(d=>{const age=Date.now()-Date.parse(d.last_seen);return Number.isFinite(age)&&age>=0&&age<=45000}).length;
+ const errors=devices.filter(d=>d.error).length;
+ kpi('kpionline',recent+' / '+devices.length,errors?errors+' com erro reportado':(devices.length-recent)+' sem heartbeat nos últimos 45 s',errors?'bad':recent<devices.length?'warn':'');
+ const day=Date.now()-86400000,list=data.delivery_mode==='queued'&&isAdmin?(data.deliveries||[]):files;
+ const last=list.filter(f=>Date.parse(f.received_at)>=day);
+ kpi('kpifiles',last.length,(last.reduce((sum,f)=>sum+(Number(f.size)||0),0)/1048576).toFixed(1)+' MB · dentro dos últimos 1.000 registros');
+ if(isAdmin){
+  const dl=data.deliveries||[],pend=dl.filter(d=>d.status==='pending').length,bad=dl.filter(d=>d.status==='conflict'||d.status==='uncertain').length;
+  kpi('kpiqueue',pend,bad?bad+' conflito(s)/incerto(s) exigem ação':'Sem conflitos na fila',bad?'bad':pend?'warn':'');
+ }else kpi('kpiqueue','—','Visível para administradores','');
+ const checks=[m.health_ok,m.space_ok,m.backup_ok],fail=checks.filter(v=>v===false).length,known=checks.filter(v=>typeof v==='boolean').length;
+ kpi('kpihealth',!known?'—':fail?'Atenção':'OK',!known?'Sem relatório de manutenção':fail+' de '+known+' verificações com falha · '+timestamp(m.checked_at),fail?'bad':!known?'warn':'');
+}
+function clearSession(){
+ token='';isAdmin=false;sessionVersion++;refreshSequence++;usersSnapshot='';refreshError='';
+ $('panel').hidden=true;$('admin').hidden=true;$('login').hidden=false;
+ for(const id of ['users','devices','files','devicecredential','statussummary','activations','deliveries','deliverysummary','maintenanceinfo','identity','syncstatus'])$(id).replaceChildren();
+ $('adminnav').hidden=true;$('refresh').disabled=false;
+ for(const id of ['username','password','newuser','newpassword','devicename'])$(id).value='';
+ $('role').value='operator';$('activationrole').value='sender';$('activationhours').value='24';$('message').textContent='';
+ resetKpis();showTab('overview');
+}
+function staleResponse(){const error=Error('Sessão alterada');error.stale=true;return error}
+async function api(path,method='GET',body){
+ const version=sessionVersion;
+ const r=await fetch(path,{method,headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),cache:'no-store'});
+ if(version!==sessionVersion)throw staleResponse();
+ if(r.status===401){clearSession();throw Error('Sessão inválida ou credenciais incorretas. Entre novamente.')}
+ const j=await r.json();
+ if(version!==sessionVersion)throw staleResponse();
+ if(!r.ok)throw Error(typeof j.detail==='string'?j.detail:'Não foi possível concluir a operação.');
+ return j;
+}
+function element(tag,text){const node=document.createElement(tag);if(text!==undefined)node.textContent=String(text);return node}
+function button(label,action){const node=element('button',label);node.type='button';node.onclick=async()=>{if(node.disabled)return;node.disabled=true;const previousMessage=$('message').textContent;try{await action();if(token && $('message').textContent===previousMessage)$('message').textContent='Operação concluída.'}catch(e){message(e)}finally{node.disabled=false}};return node}
+function table(id,headers,rows){
+ const grid=element('table'),head=element('thead'),heading=element('tr'),body=element('tbody');
+ grid.setAttribute('aria-label',headers.join(' · '));
+ for(const title of headers){const cell=element('th',title);cell.scope='col';heading.append(cell)}
+ head.append(heading);grid.append(head,body);
+ for(const values of rows){const row=element('tr');for(const value of values){const cell=element('td');if(value!==null && typeof value==='object')cell.append(value);else cell.textContent=String(value??'—');row.append(cell)}body.append(row)}
+ if(!rows.length){const row=element('tr'),cell=element('td','Nenhum registro.');cell.colSpan=headers.length;row.append(cell);body.append(row)}
+ $(id).replaceChildren(grid);
+}
+function timestamp(value){if(!value)return '—';const date=new Date(value);return Number.isNaN(date.getTime())?'Data inválida':date.toLocaleString('pt-BR')}
+function contact(device){
+ const age=Date.now()-Date.parse(device.last_seen);
+ if(!device.enabled)return element('span','Revogado');
+ if(!device.last_seen || !Number.isFinite(age))return element('span','Sem contato registrado');
+ if(age<0)return element('span','Horário de contato inconsistente');
+ const label=element('span',age>45000?'Desatualizado (>45 s)':'Contato recente (≤45 s)');
+ if(age>45000)label.className='stale';
+ return label;
+}
+function renderStatus(data){
+ const m=data.maintenance||{};
+ const state=v=>v===true?'OK':v===false?'Falha':'Não verificado';
+ $('maintenanceinfo').textContent='Aplicação: '+state(m.health_ok)+' · Espaço: '+state(m.space_ok)+' · Backup: '+state(m.backup_ok)+' · Último backup: '+timestamp(m.last_backup_at)+' · Verificação: '+timestamp(m.checked_at)+(m.backup_error?' · Erro: '+m.backup_error:'');
+ const devices=data.devices||[],files=data.files||[];
+ const queued=data.delivery_mode==='queued';
+ $('filestitle').textContent=queued?'Histórico de recebimentos diretos':'Arquivos recebidos';
+ $('fileslink').textContent=queued?'Histórico':'Arquivos recebidos';
+ $('fileshint').textContent=(queued?'Registros do receptor direto anterior. Novos recebimentos estão em Fila e entregas, disponível à administração. ':'')+'Últimos 1.000 registros, do mais recente ao mais antigo. Deslize a tabela para consultar todas as colunas.';
+ $('statussummary').textContent=devices.length+' dispositivos · '+devices.reduce((sum,d)=>sum+(Number(d.pending)||0),0)+' pendências declaradas pelos dispositivos · '+files.length+' recebimentos diretos listados'+(queued&&isAdmin?' · '+(data.deliveries||[]).length+' recibos do servidor listados':'');
+ table('devices',['Dispositivo / ID','Situação do contato','Último contato','Pendentes','Último erro',...(isAdmin?['Ações']:[])],devices.map(d=>{
+   const identity=element('div',d.name);identity.append(element('br'),element('small',d.id+' · '+deviceRole(d.role||'sender')));
+   const row=[identity,contact(d),timestamp(d.last_seen),d.pending,d.error||'—'];
+   if(isAdmin)row.push(d.enabled?button('Revogar',async()=>{await api('/api/devices/'+encodeURIComponent(d.id),'DELETE');await refresh()}):'Revogado');
+   return row;
+ }));
+ const names=new Map(devices.map(d=>[d.id,d.name]));
+ table('files',['Arquivo','Dispositivo','Tamanho (bytes)','Recebido em','SHA-256'],files.map(f=>[f.name,names.get(f.device_id)||f.device_id,f.size,timestamp(f.received_at),f.sha256]));
+}
+function renderUsers(users){
+ // Reuse unchanged controls: polling must not discard a typed password, role or focus.
+ const snapshot=JSON.stringify(users);if(snapshot===usersSnapshot)return;usersSnapshot=snapshot;
+ table('users',['Usuário','Perfil','Situação','Alterar perfil','Redefinir senha','Acesso'],users.map(user=>{
+   const path='/api/users/'+encodeURIComponent(user.username),roles=element('select');
+   roles.setAttribute('aria-label','Perfil de '+user.username);
+   for(const [value,label] of [['operator','Operador'],['admin','Admin']]){const option=element('option',label);option.value=value;roles.append(option)}
+   roles.value=user.role;
+   const roleControl=element('div');roleControl.append(roles,button('Salvar perfil',async()=>{await api(path,'PATCH',{role:roles.value});usersSnapshot='';await refresh()}));
+   const password=element('input');password.type='password';password.minLength=12;password.maxLength=1024;password.autocomplete='new-password';password.placeholder='Nova senha (mín. 12)';password.setAttribute('aria-label','Nova senha de '+user.username);
+   const reset=element('div');reset.append(password,button('Redefinir senha',async()=>{const secret=password.value;password.value='';if(secret.length<12 || secret.length>1024)throw Error('Senha deve ter de 12 a 1024 caracteres.');await api(path,'PATCH',{password:secret});await refresh()}));
+   return [user.username,user.role==='admin'?'Admin':'Operador',user.enabled?'Habilitado':'Desabilitado',roleControl,reset,button(user.enabled?'Desativar':'Ativar',async()=>{await api(path,'PATCH',{enabled:!user.enabled});await refresh()})];
+ }));
+}
+async function refresh(){
+ if(!token)return;
+ const version=sessionVersion,sequence=++refreshSequence;
+ $('syncstatus').textContent='Atualizando dados…';$('refresh').disabled=true;
+ try{
+   const me=await api('/api/me'),data=await api('/api/status');
+   const users=me.role==='admin'?await api('/api/users'):[];
+   const activations=me.role==='admin'?await api('/api/activations'):[];
+   if(version!==sessionVersion || sequence!==refreshSequence || !token)return;
+   isAdmin=me.role==='admin';$('admin').hidden=!isAdmin;$('adminnav').hidden=!isAdmin;
+   $('identity').textContent=(me.username||'Conta autenticada')+' · '+(isAdmin?'Administrador':'Operador');
+   if(!isAdmin){for(const id of ['users','devicecredential','activations','deliveries','deliverysummary'])$(id).replaceChildren();$('newpassword').value='';usersSnapshot=''}
+   if(!isAdmin && ADMIN_TABS.includes(currentTab))showTab('overview');
+   renderStatus(data);renderKpis(data);if(isAdmin){renderUsers(users);renderDistribution(activations,data.deliveries||[])}
+   if(refreshError && $('message').textContent===refreshError)$('message').textContent='';refreshError='';
+   $('syncstatus').textContent='Atualizado em '+new Date().toLocaleTimeString('pt-BR')+' · consulta automática a cada 15 s';
+ }catch(e){if(sequence===refreshSequence && version===sessionVersion){message(e);if(token){refreshError=e.message||String(e);$('syncstatus').textContent='Falha na atualização. Os dados exibidos podem estar desatualizados.'}}else if(!e.stale && !token)message(e)}
+ finally{if(version===sessionVersion && sequence===refreshSequence)$('refresh').disabled=false}
+}
+$('loginform').onsubmit=async e=>{
+ e.preventDefault();if($('loginbutton').disabled)return;const version=sessionVersion;$('loginbutton').disabled=true;$('message').textContent='Autenticando…';
+ try{
+   const username=$('username').value,password=$('password').value;$('password').value='';
+   const j=await api('/api/login','POST',{username,password});
+   if(version!==sessionVersion)return;
+   token=j.token;isAdmin=j.role==='admin';sessionVersion++;
+   $('login').hidden=true;$('panel').hidden=false;$('admin').hidden=!isAdmin;$('message').textContent='';showTab('overview');
+   await refresh();
+ }catch(e){message(e)}finally{$('loginbutton').disabled=false}
+};
+$('userform').onsubmit=async e=>{e.preventDefault();if($('userbutton').disabled)return;$('userbutton').disabled=true;const password=$('newpassword').value;$('newpassword').value='';$('message').textContent='Criando usuário…';try{await api('/api/users','POST',{username:$('newuser').value,password,role:$('role').value});$('message').textContent='Usuário criado.';await refresh()}catch(e){message(e)}finally{$('userbutton').disabled=false}};
+$('deviceform').onsubmit=async e=>{e.preventDefault();if($('devicebutton').disabled)return;$('devicebutton').disabled=true;$('devicecredential').textContent='';$('message').textContent='Gerando código…';try{const j=await api('/api/activations','POST',{name:$('devicename').value,role:$('activationrole').value,expires_hours:Number($('activationhours').value)});$('devicecredential').textContent=j.code+' · '+deviceRole(j.role)+' · expira '+timestamp(j.expires_at);$('message').textContent='Código gerado. Copie antes de sair.';await refresh()}catch(e){message(e)}finally{$('devicebutton').disabled=false}};
+function deviceRole(role){return ({sender:'Remetente',delivery:'Entregador'})[role]||role}
+function deliveryState(state){return ({pending:'Pendente',delivered:'Entregue',conflict:'Conflito',uncertain:'Incerto'})[state]||state}
+function deliveryBadge(state){const badge=element('span',deliveryState(state));badge.className='status-badge'+(['pending','delivered','conflict','uncertain'].includes(state)?' status-'+state:'');return badge}
+function renderDistribution(activations,deliveries){
+ table('activations',['Nome / ID','Papel','Validade','Situação','Ação'],activations.map(a=>[a.name+' / '+a.id,deviceRole(a.role),timestamp(a.expires_at),a.device_id?'Usado':a.revoked?'Revogado':Date.parse(a.expires_at)<=Date.now()?'Expirado':'Disponível',!a.device_id&&!a.revoked?button('Revogar código',async()=>{await api('/api/activations/'+encodeURIComponent(a.id),'DELETE');await refresh()}):'—']));
+ $('deliverysummary').textContent=['pending','delivered','conflict','uncertain'].map(state=>deliveries.filter(d=>d.status===state).length+' '+deliveryState(state).toLocaleLowerCase('pt-BR')).join(' · ')+' — contagens dos recibos listados, não totais históricos.';
+ table('deliveries',['Recibo','Arquivo','Remetente','Estado','Erro','Reserva até'],deliveries.map(d=>[d.receipt_id,d.name,d.device_id,deliveryBadge(d.status),d.error||'—',timestamp(d.lease_until)]));
+}
+function logout(){
+ const credential=token;clearSession();
+ // Best effort revocation: UI and pending requests are invalidated immediately.
+ if(credential){try{fetch('/api/logout',{method:'POST',headers:{Authorization:'Bearer '+credential},cache:'no-store'}).catch(()=>{})}catch(_){}}
+}
+$('refresh').onclick=refresh;$('logout').onclick=logout;
+showTab('overview');
+setInterval(()=>{if(token)refresh()},15000);
+</script></html>'''
